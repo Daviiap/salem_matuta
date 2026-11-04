@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#140c22">
+  <title>Sabá: a vila tem bruxas entre os vizinhos</title>
+  <link rel="icon" href="data:,">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;600;700&family=VT323&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div id="sky" aria-hidden="true"><div class="moon"></div><div class="hills"></div></div>
+  <header id="topbar" hidden>
+    <button id="btn-home" class="icon-btn" title="Sair da sala"><img class="px" id="ic-home" alt="sair"></button>
+    <div class="title">SABÁ <span id="room-code"></span></div>
+    <span id="net-dot" class="dot" title="conexão"></span>
+    <button id="btn-rules" class="icon-btn" title="Regras"><img class="px" id="ic-rules" alt="regras"></button>
+  </header>
+  <main id="app"></main>
+  <div id="sheet" class="sheet" hidden></div>
+  <div id="toast" class="toast" hidden></div>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

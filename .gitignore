@@ -1,0 +1,4 @@
+# material de referência (não publicar)
+*.pdf
+node_modules/
+.DS_Store
