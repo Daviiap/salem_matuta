@@ -112,11 +112,40 @@ test('meia-noite: vítima morre sem proteção; Lanterna salva', () => {
     assert.equal(s.night.stage, 'confess');
     tick(s, 10 ** 9);
     assert.equal(getP(s, victim.id).alive, protect);
+    assert.equal(s.report.target, victim.id);
+    assert.deepEqual(s.report.deaths.map((d) => d.id).includes(victim.id), !protect);
+    if (protect) assert.equal(s.report.protected, victim.id);
     if (s.phase !== 'over') {
       assert.equal(s.phase, 'day');
       assert.equal(s.deck.at(-1).type, 'meianoite');
     }
   }
+});
+
+test('eclipse: cada um escolhe uma carta do vizinho; sem escolha, sorteia ao fim do tempo', () => {
+  const s = setup(5, 33);
+  finishDawn(s, 'p0');
+  for (const p of s.players) p.front = p.front.filter((c) => c.type !== 'corvo');
+  s.deck.unshift(...s.deck.splice(s.deck.findIndex((c) => c.type === 'eclipse'), 1));
+  applyAction(s, s.turn.pid, { type: 'draw' }, 0);
+  assert.equal(s.pending?.kind, 'swap');
+  const before = s.players.map((p) => p.trials.length);
+  const p0 = getP(s, 'p0'), p1 = getP(s, 'p1');
+  const chosen = p1.trials[2];
+  assert.throws(() => applyAction(s, 'p0', { type: 'swapTrials', i: 0, j: 1 }, 0), GameError);
+  applyAction(s, 'p0', { type: 'swapPick', index: 2 }, 0);
+  assert.throws(() => applyAction(s, 'p0', { type: 'swapPick', index: 1 }, 0), GameError);
+  const v = viewFor(s, 'p0');
+  assert.equal(v.pending.from, 'p1');
+  assert.equal(v.pending.pick, 2);
+  assert.ok(!v.pending.waiting.includes('p0'));
+  tick(s, 29000);
+  assert.equal(s.pending?.kind, 'swap');
+  tick(s, 30000);
+  assert.equal(s.pending, null);
+  assert.ok(p0.trials.includes(chosen));
+  assert.ok(!p1.trials.includes(chosen));
+  assert.deepEqual(s.players.map((p) => p.trials.length), before);
 });
 
 test('laço de sangue mata o parceiro', () => {
@@ -161,6 +190,14 @@ function botStep(s, now) {
     const t = getP(s, s.pending.target);
     const idx = t.trials.findIndex((x) => !x.revealed);
     applyAction(s, s.pending.chooser, { type: 'reveal', index: idx, taberna: true, juiz: true }, now);
+    return;
+  }
+  if (s.pending?.kind === 'swap') {
+    for (const { to, from } of [...s.pending.pairs]) {
+      if (s.pending?.kind !== 'swap' || s.pending.picks[to] != null || Math.random() < 0.3) continue; // alguns deixam o tempo acabar
+      const idx = getP(s, from).trials.findIndex((x) => !x.revealed);
+      applyAction(s, to, { type: 'swapPick', index: idx }, now);
+    }
     return;
   }
   if (s.pending?.kind === 'cartomante') {

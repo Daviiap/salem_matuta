@@ -41,6 +41,9 @@ export function viewFor(s, viewer, { all = false } = {}) {
     moderator: all,
     players,
     deckCount: s.deck.length,
+    // 0 = começo do dia, 1 = Meia-Noite (a Meia-Noite é sempre a última carta do baralho)
+    dusk: s.phase === 'night' ? 1 : s.phase === 'day' && s.cycle > 1 ? Math.min(1, Math.max(0, 1 - (s.deck.length - 1) / (s.cycle - 1))) : 0,
+    report: s.report,
     discard: s.discard.map(({ uid, type }) => ({ uid, type })),
     turn: s.turn ? { pid: s.turn.pid, mode: s.turn.mode, hourglass: s.turn.hourglass } : null,
     busy: s.steps.length > 0,
@@ -60,6 +63,15 @@ export function viewFor(s, viewer, { all = false } = {}) {
     if (pd.pid === viewer || all) {
       v.pending.cards = pd.cards.map((u) => s.deck.find((c) => c.uid === u)).map(({ uid, type }) => ({ uid, type }));
     }
+  } else if (pd?.kind === 'swap') {
+    const pair = pd.pairs.find((x) => x.to === viewer);
+    v.pending = {
+      kind: 'swap', deadline: pd.deadline,
+      from: pair?.from ?? null,
+      pick: viewer ? pd.picks[viewer] ?? null : null,
+      waiting: pd.pairs.filter((x) => pd.picks[x.to] == null).map((x) => x.to),
+    };
+    if (all) v.pending.pairs = pd.pairs.map((x) => ({ ...x, pick: pd.picks[x.to] ?? null }));
   }
 
   if (s.dawn) {

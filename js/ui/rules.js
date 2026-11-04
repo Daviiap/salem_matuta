@@ -30,7 +30,7 @@ export function rulesHtml() {
   <h3>Alvorada, Eclipse e Meia-Noite</h3>
   <ul class="plain">
     <li><b>Alvorada:</b> no começo, o coven se reconhece e entrega o Corvo Agourento a alguém, que começa a partida.</li>
-    <li><b>Eclipse:</b> quem comprou escolhe uma carta de quem tem o Corvo para revelar. Depois, cada pessoa pega às cegas uma carta de equipe do vizinho seguinte.</li>
+    <li><b>Eclipse:</b> quem comprou escolhe uma carta de quem tem o Corvo para revelar. Depois, cada pessoa escolhe, às cegas, uma carta de equipe do vizinho seguinte. Quem não escolher em 30 segundos recebe uma carta sorteada.</li>
     <li><b>Meia-Noite:</b> é sempre a última carta do baralho. O coven escolhe uma vítima, o Caçador ergue a Lanterna para proteger outra pessoa e todos podem <b>confessar</b> (revelar uma carta própria) para se salvar. Em seguida, o baralho é refeito.</li>
     <li>Durante a Alvorada e a Meia-Noite, <b>todos</b> mexem no celular, assim ninguém se entrega.</li>
   </ul>

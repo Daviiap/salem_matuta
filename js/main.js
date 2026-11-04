@@ -3,11 +3,13 @@ import { cryptoAvailable } from './net/crypto.js';
 import { esc, $, toast, buzz, P, fmtSecs, icon } from './ui/dom.js';
 import { newUi, renderPlayer, renderModerator, sheetFor, rulesSheet } from './ui/game.js';
 import { installPixelAssets, spriteIds, spriteUrl } from './ui/pixel.js';
+import { setSky } from './ui/sky.js';
 
 installPixelAssets();
 document.getElementById('ic-home').src = spriteUrl('casa');
 document.getElementById('ic-rules').src = spriteUrl('aprendiz');
 document.querySelector('#sky .moon').innerHTML = `<img class="px" src="${spriteUrl('meianoite')}" alt="">`;
+document.querySelector('#sky .sun').innerHTML = `<img class="px" src="${spriteUrl('sol')}" alt="">`;
 
 const app = {
   room: null,
@@ -24,7 +26,8 @@ const params = new URLSearchParams(location.search);
 // ================= telas =================
 function renderHome() {
   $('#topbar').hidden = true;
-  document.body.classList.remove('night');
+  document.body.classList.remove('night', 'has-dock');
+  setSky(1, false);
   const code = (params.get('sala') || '').toUpperCase();
   const lastName = localStorage.getItem('saba-name') || '';
   const hosted = hostedRooms();
@@ -123,6 +126,9 @@ function render() {
     return;
   }
   document.body.classList.toggle('night', v.phase === 'night' || v.phase === 'dawn');
+  // antes do primeiro dia o céu é de madrugada; no dia, escurece conforme a Meia-Noite se aproxima
+  setSky(v.phase === 'day' || v.phase === 'night' ? v.dusk ?? 0 : v.phase === 'over' ? 0.15 : 0.85, v.phase === 'night');
+  document.body.classList.toggle('has-dock', !v.moderator && !!v.me && v.phase !== 'lobby');
   if (v.phase === 'lobby') renderLobby();
   else $('#app').innerHTML = v.moderator ? renderModerator(app) : renderPlayer(app);
   renderSheet();
@@ -148,6 +154,7 @@ function bindRoom(room) {
   app.room = room;
   app.view = null;
   app.ui = newUi();
+  app.ui.reportSeen = +localStorage.getItem('saba-report-' + room.code) || 0;
   app.screen = 'game';
   room.on('status', (st, msg) => {
     app.net = st;
@@ -192,6 +199,8 @@ function onView(v, receivedAt) {
   if (ui.play && (!m || !m.hand.some((h) => h.uid === ui.play.uid))) ui.play = null;
   if (ui.swap != null && (!m || !m.trials[ui.swap] || m.trials[ui.swap].revealed)) ui.swap = null;
   if (v.phase !== prev?.phase) { ui.decoy = null; ui.confessPick = false; ui.carto = []; }
+  // folhas opcionais saem do caminho quando algo exige a atenção de todos
+  if ((v.phase !== prev?.phase || v.pending?.kind !== prev?.pending?.kind) && /^(profile|discard|seat:)/.test(ui.sheet || '')) ui.sheet = null;
   if (v.night?.stage !== prev?.night?.stage) ui.confessPick = false;
   if (ui.sheet === 'boticario' && (v.turn?.pid !== v.me || v.turn?.mode)) { ui.sheet = null; ui.botic = []; }
   render();
@@ -281,6 +290,13 @@ const H = {
   start() { app.room.startGame(); },
   again() { app.ui.overSeen = 0; app.room.startGame(); },
   lobby() { if (confirm('Voltar ao lobby? A partida atual será encerrada.')) app.room.backToLobby(); },
+  dismissReport() {
+    const id = app.view?.report?.id || 0;
+    app.ui.reportSeen = id;
+    localStorage.setItem('saba-report-' + app.room.code, id);
+    render();
+  },
+  swapPick(d) { send({ type: 'swapPick', index: +d.i }); },
   dismissOver() { app.ui.overSeen = app.view.round; render(); },
 
   // partida

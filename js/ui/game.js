@@ -4,7 +4,7 @@ import { esc, P, pname, charOf, cardFace, cardBack, trialCard, charCard, stackHt
 import { rulesHtml } from './rules.js';
 
 export function newUi() {
-  return { play: null, swap: null, sheet: null, botic: [], carto: [], decoy: null, overSeen: 0, reveal: { taberna: true, juiz: true }, confessPick: false, fresh: new Set(), flips: new Set() };
+  return { play: null, swap: null, sheet: null, botic: [], carto: [], decoy: null, overSeen: 0, reveal: { taberna: true, juiz: true }, confessPick: false, reportSeen: 0, fresh: new Set(), flips: new Set() };
 }
 
 const remaining = (app, deadline) => deadline - (Date.now() + app.offset);
@@ -23,9 +23,10 @@ function matHtml(app, v, p) {
   const mine = p.id === v.me;
   const c = charOf(p);
   const online = v.online?.[p.id] !== false;
-  const coven = p.everWitch && (v.moderator || v.phase === 'over' || mine || (v.coven || []).includes(p.id));
-  const seeTypes = mine || v.moderator;
-  const trials = p.trials.map((t) => trialCard(t, { size: 'xs', mine: seeTypes, fresh: app.ui.flips })).join('');
+  // a própria equipe não aparece na mesa (quem olhar o seu celular não vê); fica no Perfil
+  const coven = p.everWitch && (v.moderator || v.phase === 'over' || (!mine && (v.coven || []).includes(p.id)));
+  const seeTypes = v.moderator;
+  const trials = p.trials.map((t) => trialCard(seeTypes || t.revealed ? t : { ...t, type: null }, { size: 'xs', mine: seeTypes, fresh: app.ui.flips })).join('');
   const front = p.front.map((x) => cardFace(x, { size: 'xs' })).join('');
   const tags = [
     mine ? '<span class="tag">você</span>' : '',
@@ -34,9 +35,9 @@ function matHtml(app, v, p) {
     online ? '' : '<span class="tag off">offline</span>',
   ].join('');
   const hand = v.moderator && p.hand?.length ? `<div class="mat-hand">${p.hand.map((h) => cardFace(h, { size: 'xs' })).join('')}</div>` : '';
-  return `<div class="mat ${isTurn ? 'turn' : ''} ${p.alive ? '' : 'dead'} ${mine ? 'me' : ''}" data-a="seatInfo" data-pid="${p.id}">
+  return `<div class="mat ${isTurn ? 'turn' : ''} ${p.alive ? '' : 'dead'} ${mine ? 'me' : ''} ${coven && v.phase !== 'over' ? 'coven' : ''}" data-a="${mine ? 'openSheet' : 'seatInfo'}" data-s="profile" data-pid="${p.id}">
     <div class="mat-head">
-      <span class="portrait">${icon(sprite(p))}</span>
+      <span class="portrait">${icon(sprite(p))}${coven ? icon('bruxa', 'badge') : ''}</span>
       <div class="mat-id"><div class="mat-name">${esc(p.name)}</div>
         <div class="mat-char">${esc(c.name)}${p.character === 'aprendiz' && p.copied ? ` · ${esc(CHARACTERS[p.copied].name)}` : ''}</div>
         <div class="tags">${tags}</div></div>
@@ -84,6 +85,7 @@ function statusHtml(app, v) {
   const pd = v.pending;
   if (pd?.kind === 'reveal') return box('flagrante', `${pname(v, pd.chooser)} escolhe uma carta de ${pname(v, pd.target)} para revelar…`, pd.chooser === v.me);
   if (pd?.kind === 'cartomante') return box('cartomante', `${pname(v, pd.pid)} consulta o baralho…`);
+  if (pd?.kind === 'swap') return box('eclipse', `Eclipse: cada pessoa pega uma carta de equipe do vizinho ${timer(app, pd.deadline)}<br><small>Faltam: ${pd.waiting.map((id) => pname(v, id)).join(', ') || '—'}</small>`, pd.from && pd.pick == null);
   const hg = t.hourglass ? ` ${icon('ampulheta', 'inline')} ${timer(app, t.hourglass)}` : '';
   const myTurn = t.pid === v.me;
   const btns = [];
@@ -122,34 +124,89 @@ function fanHtml(app, hand) {
 }
 
 // ---------- tela do jogador ----------
+// A mesa fica em cima; a mão fica sempre à mão, presa no rodapé. O morador e as cartas
+// de equipe só aparecem no Perfil, para ninguém ver de relance.
 export function renderPlayer(app) {
   const v = app.view;
   const m = me(v);
-  const ui = app.ui;
-  let mine = '';
+  let dock = '';
   if (m && m.character) {
-    const trials = m.trials.map((t, i) => trialCard(t, { size: 'mdm', mine: true, fresh: ui.flips, act: t.revealed ? null : 'swap', i, sel: ui.swap === i })).join('');
-    const coven = m.everWitch
-      ? `<p class="note coven">${icon('bruxa', 'inline')} Você é do <b>coven</b>${v.coven?.length ? ` com <b>${v.coven.map((id) => pname(v, id)).join(', ')}</b>` : ''}. Domine a vila.</p>`
-      : '';
-    mine = `<section class="panel my">
-      <h2>Seu lugar</h2>
-      <div class="my-top">
-        ${charCard(m.character, { size: 'mdm', copied: m.copied, act: 'seatInfo', pid: m.id })}
-        <div class="my-info">
-          <div class="my-name">${esc(m.name)}</div>
-          <div class="ability">${esc(charOf(m).desc)}${m.character === 'aprendiz' ? `<br><b>Copiando:</b> ${m.copied ? esc(CHARACTERS[m.copied].name) : 'nada'}` : ''}</div>
-          ${coven}
-          ${m.alive ? '' : `<p class="note">${icon('caveira', 'inline')} Você morreu. Assista em silêncio.</p>`}
-        </div>
+    dock = `<div class="dock">
+      <button class="profile-btn" data-a="openSheet" data-s="profile" title="Seu perfil">${icon(m.alive ? m.character : 'caveira')}<span>Perfil</span></button>
+      <div class="dock-hand">
+        <div class="dock-label">Sua mão <small>· ${m.hand.length}</small></div>
+        ${fanHtml(app, m.hand)}
       </div>
-      <h3>Cartas de equipe <small>· toque em duas ocultas para trocar a ordem</small></h3>
-      <div class="row-cards">${trials}</div>
-      <h3>Sua mão <small>· ${m.hand.length} carta(s)</small></h3>
-      ${fanHtml(app, m.hand)}
-    </section>`;
+    </div>`;
   }
-  return `${statusHtml(app, v)}${tableHtml(app, v)}${mine}${logHtml(v)}`;
+  return `${statusHtml(app, v)}${tableHtml(app, v)}${logHtml(v)}${dock}`;
+}
+
+function profileSheet(app) {
+  const v = app.view;
+  const m = me(v);
+  const ui = app.ui;
+  if (!m?.character) return '';
+  const others = (v.coven || []).filter((id) => id !== v.me);
+  const coven = m.everWitch
+    ? `<p class="note coven">${icon('bruxa', 'inline')} Você é do <b>coven</b>${others.length ? ` com <b>${others.map((id) => pname(v, id)).join(', ')}</b>` : '. Nesta partida, você é a única bruxa (ou ainda não conhece as outras)'}. Domine a vila.</p>`
+    : '<p class="note">Você é da <b>vila</b>. Descubra as bruxas.</p>';
+  const trials = m.trials.map((t, i) => trialCard(t, { size: 'md', mine: true, fresh: ui.flips, act: t.revealed ? null : 'swap', i, sel: ui.swap === i })).join('');
+  const uses = [];
+  if (has(m, 'boticario')) uses.push(`Boticário: ${2 - m.uses.boticario} uso(s)`);
+  if (has(m, 'cartomante')) uses.push(`Cartomante: ${1 - m.uses.cartomante} uso(s)`);
+  if (has(m, 'sacristao')) uses.push(`Sacristão: ${1 - m.uses.sacristao} uso(s)`);
+  return dialog(`<h2>${icon(sprite(m), 'inline')} ${esc(m.name)}</h2>
+    <div class="profile-top">
+      ${charCard(m.character, { size: 'lg', copied: m.copied })}
+      <div class="my-info">
+        ${m.character === 'aprendiz' ? `<p class="ability"><b>Copiando agora:</b> ${m.copied ? esc(CHARACTERS[m.copied].name) : 'nada'}</p>` : ''}
+        ${uses.length ? `<p class="ability">${uses.join('<br>')}</p>` : ''}
+        ${coven}
+        ${m.alive ? '' : `<p class="note">${icon('caveira', 'inline')} Você morreu. Assista em silêncio.</p>`}
+      </div>
+    </div>
+    <h3>Cartas de equipe <small>· toque em duas ocultas para trocar a ordem</small></h3>
+    <div class="row-cards">${trials}</div>
+    <p class="muted center small-text">Esconda a tela antes de abrir o perfil.</p>
+    <button class="block" data-a="closeSheet">Fechar</button>`);
+}
+
+function swapSheet(app) {
+  const v = app.view;
+  const pd = v.pending;
+  const from = P(v, pd.from);
+  const t = timer(app, pd.deadline);
+  if (pd.pick != null) {
+    return dialog(`<h2>${icon('eclipse', 'inline')} Eclipse ${t}</h2>
+      <p>Você escolheu a ${pd.pick + 1}ª carta de <b>${esc(from.name)}</b>. Aguardando: ${pd.waiting.map((id) => pname(v, id)).join(', ') || '—'}.</p>
+      <div class="row-cards">${from.trials.map((tr, i) => trialCard(tr, { size: 'md', cls: i === pd.pick ? 'sel' : 'dim' })).join('')}</div>`, 'night-box');
+  }
+  return dialog(`<h2>${icon('eclipse', 'inline')} Eclipse ${t}</h2>
+    <p>Pegue às cegas uma carta de equipe de <b>${esc(from.name)}</b>. Ao mesmo tempo, quem está antes de você pega uma das suas.</p>
+    <p class="muted">Se o tempo acabar, a carta é sorteada.</p>
+    <div class="row-cards">${from.trials.map((tr, i) => trialCard(tr, { size: 'md', act: tr.revealed ? null : 'swapPick', i, cls: tr.revealed ? 'dim' : 'pickme' })).join('')}</div>`, 'night-box');
+}
+
+function reportSheet(app) {
+  const v = app.view;
+  const r = v.report;
+  const names = (ids) => ids.map((id) => `<b>${esc(pname(v, id))}</b>`).join(', ');
+  const row = (ic, label, html) => `<div class="report-row">${icon(ic)}<div><small>${label}</small><div>${html}</div></div></div>`;
+  const target = r.target
+    ? `${names([r.target])}${r.saved.length ? ` <span class="tag ok">sobreviveu</span><br><small>salvo(a) por: ${r.saved.join(', ')}</small>` : ''}`
+    : 'ninguém';
+  const deaths = r.deaths.length
+    ? r.deaths.map((d) => `<b>${esc(pname(v, d.id))}</b> <small>(${esc(d.reason)})</small>`).join('<br>')
+    : 'Ninguém morreu esta noite.';
+  return dialog(`<h2>${icon('meianoite', 'inline')} O que houve na Meia-Noite</h2>
+    <div class="report">
+      ${row('caveira', 'Mortes', deaths)}
+      ${row('bruxa', 'Alvo do coven', target)}
+      ${row('cacador', 'Protegido(a) pela Lanterna', r.protected ? names([r.protected]) : 'ninguém')}
+      ${row('inocente', 'Confessaram', r.confessed.length ? names(r.confessed) : 'ninguém')}
+    </div>
+    <button class="block" data-a="dismissReport">Amanheceu</button>`, 'night-box');
 }
 
 // ---------- tela do moderador ----------
@@ -160,7 +217,7 @@ function scriptFor(v) {
     case 'night': return v.night.stage === 'act'
       ? 'Soa a Meia-Noite. Todos olhem para o celular. Bruxas, escolham sua vítima. Caçador, erga a Lanterna para proteger alguém.'
       : 'O sino silencia. Quem quiser pode confessar agora para salvar a própria pele…';
-    case 'day': return v.pending?.kind === 'reveal' ? 'A vila exige respostas! Uma carta será revelada.' : `É a vez de ${pname(v, v.turn?.pid)}.`;
+    case 'day': return v.pending?.kind === 'swap' ? 'O sol escurece! Cada um pega, às cegas, uma carta de equipe do vizinho.' : v.pending?.kind === 'reveal' ? 'A vila exige respostas! Uma carta será revelada.' : `É a vez de ${pname(v, v.turn?.pid)}.`;
     case 'over': return v.winner === 'vila' ? 'A vila respira aliviada: todas as bruxas foram descobertas.' : 'Ao amanhecer, só restam bruxas na vila…';
     default: return '';
   }
@@ -175,6 +232,7 @@ export function renderModerator(app) {
     info = `<p><b>Votos do coven:</b><br>${votes}</p><p><b>Caçador:</b> ${n.hunter ? pname(v, n.hunter) : 'nenhum'} → ${n.pick ? pname(v, n.pick) : '…'}</p>
       ${n.stage === 'confess' ? `<p><b>Já decidiram:</b> ${Object.keys(n.done).map((id) => pname(v, id)).join(', ') || '—'}</p>` : ''}`;
   }
+  if (v.pending?.kind === 'swap') info = `<p><b>Eclipse:</b><br>${v.pending.pairs.map((x) => `${pname(v, x.to)} pega de ${pname(v, x.from)}: ${x.pick == null ? '…' : `${x.pick + 1}ª carta`}`).join('<br>')}</p>`;
   if (v.dawn?.votes) info = `<p><b>Votos da Alvorada:</b><br>${Object.entries(v.dawn.votes).map(([w, t]) => `${pname(v, w)} → ${pname(v, t)}`).join('<br>') || '—'}</p>`;
   return `${statusHtml(app, v)}
     <section class="panel"><h2>Painel do moderador</h2>
@@ -183,7 +241,7 @@ export function renderModerator(app) {
         <button class="ghost" data-a="undo">Desfazer</button>
         <button class="ghost" data-a="mod" data-m="skipTurn">Pular vez</button>
         <button class="ghost" data-a="mod" data-m="stopHourglass">Parar ampulheta</button>
-        <button class="ghost" data-a="mod" data-m="endNightTimer">Encerrar confissões</button>
+        <button class="ghost" data-a="mod" data-m="endNightTimer">Encerrar contagem</button>
         <button class="danger" data-a="lobby">Voltar ao lobby</button>
       </div>
       <p class="muted">Coven: ${(v.coven || []).map((id) => pname(v, id)).join(', ') || '—'}</p>
@@ -369,12 +427,16 @@ export function sheetFor(app) {
   if (ui.sheet === 'discard') return discardSheet(app);
   if (ui.sheet?.startsWith?.('seat:')) return seatInfoSheet(app, ui.sheet.slice(5));
   if (v.phase === 'over') return ui.overSeen === v.round ? '' : overSheet(app);
-  if (!m) return '';
+  const report = v.report && v.phase === 'day' && ui.reportSeen < v.report.id ? reportSheet(app) : '';
+  if (!m) return report;
   if (v.phase === 'choose' && !m.character) return chooseSheet(app);
   if (v.phase === 'dawn') return dawnSheet(app);
   if (v.phase === 'night' && m.alive) return nightSheet(app);
   if (v.pending?.kind === 'reveal' && v.pending.chooser === v.me) return revealSheet(app);
   if (v.pending?.kind === 'cartomante' && v.pending.pid === v.me) return cartomanteSheet(app);
+  if (v.pending?.kind === 'swap' && v.pending.from && m.alive) return swapSheet(app);
+  if (report) return report;
+  if (ui.sheet === 'profile') return profileSheet(app);
   if (ui.sheet === 'boticario') return boticarioSheet(app);
   if (ui.play) return playSheet(app);
   return '';

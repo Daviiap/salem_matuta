@@ -7,6 +7,7 @@ export class GameError extends Error {}
 const fail = (msg) => { throw new GameError(msg); };
 
 const LOG_MAX = 250;
+export const SWAP_SECS = 30;
 
 export function createGame(config = {}) {
   return {
@@ -23,6 +24,8 @@ export function createGame(config = {}) {
     pending: null,
     night: null,
     dawn: null,
+    report: null,
+    cycle: 0,
     log: [],
     logSeq: 0,
     winner: null,
@@ -129,7 +132,7 @@ export function startGame(s) {
   if (!SETUP_TABLE[n]) fail('São necessários de 4 a 12 jogadores.');
   // permite "jogar de novo": zera os jogadores e mantém nomes e ordem
   s.players = s.players.map((p) => newPlayer(p.id, p.name));
-  Object.assign(s, { deck: [], discard: [], aside: [], turn: null, steps: [], pending: null, night: null, dawn: null, winner: null, round: s.round + 1 });
+  Object.assign(s, { deck: [], discard: [], aside: [], turn: null, steps: [], pending: null, night: null, dawn: null, report: null, winner: null, round: s.round + 1 });
   log(s, `Começa a partida nº ${s.round} com ${n} pessoas.`);
 
   const opts = characterOptions(s, n);
@@ -163,6 +166,7 @@ function dealAndDawn(s) {
   shuffle(s, all);
   all.push(meianoite);
   s.deck = all;
+  s.cycle = all.length;
   s.aside = [corvo];
 
   for (const p of s.players) log(s, `${name(p)} é ${CHARACTERS[p.character].name}.`);
@@ -211,13 +215,13 @@ function drawOne(s, p) {
   return null;
 }
 
-function run(s) {
+function run(s, now) {
   while (!s.pending && s.phase !== 'over' && s.steps.length) {
-    doStep(s, s.steps.shift());
+    doStep(s, s.steps.shift(), now);
   }
 }
 
-function doStep(s, st) {
+function doStep(s, st, now) {
   switch (st.t) {
     case 'draw': {
       const p = getP(s, st.pid);
@@ -249,7 +253,7 @@ function doStep(s, st) {
       return;
     }
     case 'swap':
-      eclipseSwap(s);
+      startSwap(s, now);
       return;
     case 'night':
       startNight(s);
@@ -257,16 +261,34 @@ function doStep(s, st) {
   }
 }
 
-function eclipseSwap(s) {
-  const living = alivePlayers(s).filter((p) => unrevealed(p).length);
-  if (living.length < 2) return;
-  const moves = [];
-  for (const p of living) {
+// Eclipse: cada pessoa escolhe (às cegas) uma carta de equipe do vizinho seguinte.
+// As escolhas são simultâneas; quem não escolher a tempo recebe uma carta aleatória.
+function startSwap(s, now) {
+  const pairs = [];
+  for (const p of alivePlayers(s)) {
+    if (!unrevealed(p).length) continue;
     const from = nextAlive(s, p.id, 1);
-    const pool = unrevealed(from);
-    if (!pool.length) continue;
-    const pick = pool[Math.floor(rand(s) * pool.length)];
-    moves.push({ to: p, from, trial: pick });
+    if (!from || !unrevealed(from).length) continue;
+    pairs.push({ to: p.id, from: from.id });
+  }
+  if (pairs.length < 2) return;
+  s.pending = { kind: 'swap', pairs, picks: {}, deadline: now + SWAP_SECS * 1000 };
+  log(s, `Eclipse: cada pessoa escolhe, às cegas, uma carta de equipe do vizinho seguinte (${SWAP_SECS} s).`);
+}
+
+function resolveSwap(s) {
+  const pd = s.pending;
+  const moves = [];
+  let auto = 0;
+  for (const { to, from } of pd.pairs) {
+    const src = getP(s, from);
+    let idx = pd.picks[to];
+    if (idx == null || !src.trials[idx] || src.trials[idx].revealed) {
+      const pool = src.trials.map((t, i) => (t.revealed ? -1 : i)).filter((i) => i >= 0);
+      idx = pool[Math.floor(rand(s) * pool.length)];
+      auto++;
+    }
+    moves.push({ to: getP(s, to), from: src, trial: src.trials[idx] });
   }
   for (const m of moves) m.from.trials = m.from.trials.filter((t) => t !== m.trial);
   for (const m of moves) {
@@ -274,7 +296,8 @@ function eclipseSwap(s) {
     if (m.trial.type === 'bruxa') m.to.everWitch = true;
     log(s, `Você recebeu de ${name(m.from)} a carta ${TRIALS[m.trial.type].name}.`, [m.to.id]);
   }
-  log(s, 'Eclipse: cada pessoa pegou às cegas uma carta de equipe do vizinho seguinte.');
+  s.pending = null;
+  log(s, `Eclipse: as cartas de equipe trocaram de mãos${auto ? ` (${auto} escolha(s) automática(s))` : ''}.`);
 }
 
 // ---------- turnos ----------
@@ -328,6 +351,7 @@ function kill(s, p, reason) {
   const hadLaco = frontHas(p, 'laco');
   p.alive = false;
   for (const t of p.trials) t.revealed = true;
+  if (s.night) s.night.deaths.push({ id: p.id, reason });
   log(s, `${name(p)} morreu (${reason}). Equipe: ${p.everWitch ? 'Coven' : 'Vila'}.`);
 
   const toHeirs = [...p.hand, ...p.front.filter(isBlue)];
@@ -375,7 +399,7 @@ function checkWin(s) {
 function startNight(s) {
   s.phase = 'night';
   const hunter = alivePlayers(s).find((p) => p.trials.some((t) => t.type === 'cacador' && !t.revealed));
-  s.night = { stage: 'act', votes: {}, hunter: hunter?.id ?? null, pick: null, confessed: {}, done: {}, deadline: null, decoy: {} };
+  s.night = { stage: 'act', votes: {}, hunter: hunter?.id ?? null, pick: null, confessed: {}, done: {}, deadline: null, decoy: {}, deaths: [] };
   s.pending = { kind: 'night' };
   updateWitchKnowledge(s);
   log(s, 'Meia-Noite! Todos olham para o próprio celular.');
@@ -413,8 +437,8 @@ function maybeResolveNight(s, now, force = false) {
 function resolveNight(s) {
   const n = s.night;
   const victim = getP(s, nightVictim(s));
+  const reasons = [];
   if (victim && victim.alive) {
-    const reasons = [];
     if (n.pick === victim.id) reasons.push('Lanterna do Caçador');
     if (n.confessed[victim.id]) reasons.push('confissão');
     if (frontHas(victim, 'circulo')) reasons.push('Círculo de Sal');
@@ -423,6 +447,14 @@ function resolveNight(s) {
   } else {
     log(s, 'A noite passou sem vítimas.');
   }
+  s.report = {
+    id: s.logSeq,
+    target: victim?.id ?? null,
+    saved: reasons,
+    protected: n.hunter && n.pick ? n.pick : null,
+    confessed: Object.keys(n.confessed),
+    deaths: n.deaths.slice(),
+  };
   checkWin(s);
   if (s.phase === 'over') return;
   // refaz o baralho com a Meia-Noite no fundo
@@ -430,6 +462,7 @@ function resolveNight(s) {
   const midnight = mn >= 0 ? s.aside.splice(mn, 1)[0] : mkCard(s, 'meianoite');
   s.deck = shuffle(s, [...s.deck, ...s.discard.splice(0)]);
   s.deck.push(midnight);
+  s.cycle = s.deck.length;
   s.night = null;
   s.pending = null;
   s.phase = 'day';
@@ -443,14 +476,14 @@ export function applyAction(s, pid, a, now = Date.now()) {
   const handler = ACTIONS[a.type];
   if (!handler) fail('Ação desconhecida.');
   handler(s, p, a, now);
-  finalize(s);
+  finalize(s, now);
 }
 
-function finalize(s) {
-  run(s);
+function finalize(s, now = Date.now()) {
+  run(s, now);
   if (s.phase === 'day' && !s.pending && !s.steps.length && s.turn && !getP(s, s.turn.pid)?.alive) {
     advanceTurn(s);
-    run(s);
+    run(s, now);
   }
   s.seq++;
 }
@@ -520,6 +553,7 @@ const ACTIONS = {
   swapTrials(s, p, a) {
     if (s.phase === 'over' || s.phase === 'lobby') fail('Fora de jogo.');
     if (s.pending?.kind === 'reveal' && s.pending.target === p.id) fail('Não dá para reorganizar agora.');
+    if (s.pending?.kind === 'swap') fail('Espere o Eclipse terminar para reorganizar.');
     const [i, j] = [a.i, a.j];
     const ti = p.trials[i], tj = p.trials[j];
     if (!ti || !tj || ti.revealed || tj.revealed) fail('Só cartas ocultas podem trocar de lugar.');
@@ -732,6 +766,18 @@ const ACTIONS = {
     maybeResolveNight(s, now);
   },
 
+  swapPick(s, p, a) {
+    const pd = s.pending;
+    if (pd?.kind !== 'swap') fail('Não há Eclipse em andamento.');
+    const pair = pd.pairs.find((x) => x.to === p.id);
+    if (!pair) fail('Você não pega carta neste Eclipse.');
+    if (pd.picks[p.id] != null) fail('Você já escolheu.');
+    const t = getP(s, pair.from).trials[a.index];
+    if (!t || t.revealed) fail('Escolha uma carta virada para baixo.');
+    pd.picks[p.id] = a.index;
+    if (pd.pairs.every((x) => pd.picks[x.to] != null)) resolveSwap(s);
+  },
+
   pass(s, p, a, now) {
     const n = s.night;
     if (!n || n.stage !== 'confess' || !p.alive) fail('Não é hora disso.');
@@ -753,12 +799,13 @@ export function moderatorAction(s, a, now = Date.now()) {
       break;
     case 'endNightTimer':
       if (s.night?.stage === 'confess') { maybeResolveNight(s, now, true); }
-      else fail('Não há confissões em andamento.');
+      else if (s.pending?.kind === 'swap') resolveSwap(s);
+      else fail('Não há contagem em andamento.');
       break;
     default:
       fail('Ação desconhecida.');
   }
-  finalize(s);
+  finalize(s, now);
 }
 
 // Chamado periodicamente pelo anfitrião. Retorna true se o estado mudou.
@@ -774,12 +821,17 @@ export function tick(s, now = Date.now()) {
       s.turn.mode = 'draw';
       s.steps.push({ t: 'draw', pid: p.id, track: true, notify: true }, { t: 'draw', pid: p.id, track: true, notify: true }, { t: 'lenhador', pid: p.id }, { t: 'endTurn' });
     }
-    finalize(s);
+    finalize(s, now);
     return true;
   }
   if (s.night?.stage === 'confess' && now >= s.night.deadline) {
     maybeResolveNight(s, now, true);
-    finalize(s);
+    finalize(s, now);
+    return true;
+  }
+  if (s.pending?.kind === 'swap' && now >= s.pending.deadline) {
+    resolveSwap(s);
+    finalize(s, now);
     return true;
   }
   return false;
