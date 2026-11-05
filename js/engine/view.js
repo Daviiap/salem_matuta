@@ -89,6 +89,8 @@ export function viewFor(s, viewer, { all = false } = {}) {
     if (witch || all) { v.night.votes = n.votes; v.night.victim = n.victim; }
     if (hunter || all) v.night.pick = n.pick;
     if (all) { v.night.hunter = n.hunter; }
+    // quem a Lanterna protegeu fica sabendo quando todos abrem os olhos (e não precisa confessar)
+    if (me && n.stage === 'confess' && n.pick === me.id) v.night.lantern = true;
     v.night.canSacristao = me ? has(s, me, 'sacristao') && me.uses.sacristao < 1 : false;
   }
   return v;

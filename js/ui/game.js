@@ -488,7 +488,14 @@ function nightSheet(app) {
   const ui = app.ui;
   if (n.stage === 'confess') {
     const t = timer(app, n.deadline);
-    if (n.done[v.me]) return dialog(`<h2>Confissões ${t}</h2><p>${n.confessed[v.me] ? 'Você confessou.' : 'Você decidiu não confessar.'} Aguardando os outros…</p>`, 'night-box');
+    if (n.done[v.me]) return dialog(`<h2>Confissões ${t}</h2><p>${n.lantern ? 'A Lanterna te protegeu: você está a salvo esta noite.' : n.confessed[v.me] ? 'Você confessou.' : 'Você decidiu não confessar.'} Aguardando os outros…</p>`, 'night-box');
+    if (n.lantern) {
+      // ninguém mais vê: para a mesa, parece uma pessoa que decidiu não confessar
+      return dialog(`<h2>${icon('cacador', 'inline')} Você foi salvo(a)! ${t}</h2>
+        <p>O Caçador ergueu a <b>Lanterna</b> para você esta noite. Se o coven te atacou, você sobrevive: <b>não precisa confessar</b>.</p>
+        <p class="muted small-text">Guarde segredo. Disfarce, como se estivesse decidindo.</p>
+        <button class="block" data-a="pass">Entendi</button>`, 'night-box');
+    }
     if (ui.confessPick) {
       return dialog(`<h2>Qual carta confessar? ${t}</h2><p class="muted">A carta fica revelada para todos. Se for uma Bruxa, você morre.</p>
         <div class="row-cards">${m.trials.map((tr, i) => (tr.revealed ? '' : trialCard(tr, { size: 'md', mine: true, act: 'confess', i }))).join('')}</div>

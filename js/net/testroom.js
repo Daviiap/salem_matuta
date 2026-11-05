@@ -175,7 +175,7 @@ export class TestRoom extends HostRoom {
       if (n.stage === 'confess' && !n.done[pid]) {
         // às vezes confessa uma carta inocente, para exercitar essa tela
         const safe = hidden(me).filter((i) => me.trials[i].type !== 'bruxa');
-        if (safe.length && Math.random() < 0.3) out.push({ type: 'confess', index: pickRand(safe) });
+        if (safe.length && !n.lantern && Math.random() < 0.3) out.push({ type: 'confess', index: pickRand(safe) });
         out.push({ type: 'pass' });
       }
       return out;

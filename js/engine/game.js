@@ -507,6 +507,8 @@ function advanceNight(s, now) {
     n.stage = 'confess';
     n.deadline = now + s.config.confess * 1000;
     log(s, `Todos abrem os olhos: ${s.config.confess} segundos para confissões.`);
+    const saved = n.pick && getP(s, n.pick);
+    if (saved?.alive) log(s, 'A Lanterna do Caçador te protegeu esta noite: você não precisa confessar.', [saved.id]);
   }
 }
 

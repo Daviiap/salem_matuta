@@ -154,6 +154,14 @@ test('meia-noite: vítima morre sem proteção; Lanterna salva', () => {
     assert.equal(s.night.stage, 'hunterSleep');
     tick(s, 50000);
     assert.equal(s.night.stage, 'confess');
+    // só quem a Lanterna protegeu fica sabendo, e só agora; para os outros, nada muda
+    const pickId = s.night.pick;
+    if (pickId) {
+      assert.equal(viewFor(s, pickId).night.lantern, true);
+      const other = s.players.find((p) => p.id !== pickId && p.id !== s.night.hunter);
+      assert.equal(viewFor(s, other.id).night.lantern, undefined);
+      assert.equal(s.night.done[pickId], undefined); // não aparece como "já decidiu" antes da hora
+    }
     tick(s, 10 ** 9);
     assert.equal(getP(s, victim.id).alive, protect);
     assert.equal(s.report.target, victim.id);
