@@ -10,7 +10,7 @@ export function rulesHtml() {
   const trials = Object.entries(TRIALS).map(([id, c]) => item(id, c.name, c.desc)).join('');
   const table = Object.entries(SETUP_TABLE).map(([n, r]) => `<tr><td>${n}</td><td>${r[1]}</td><td>${r[3]}</td></tr>`).join('');
   return `<div class="rules">
-  <h2>${icon('aprendiz', 'inline')} Como jogar o Sabá</h2>
+  <h2>${icon('aprendiz', 'inline')} Como jogar Sabrina</h2>
   <p>Há bruxas escondidas entre os vizinhos. Cada pessoa tem um <b>morador</b> público, com uma habilidade, e algumas <b>cartas de equipe</b> secretas, viradas para baixo.</p>
   <ul class="plain">
     <li><b>A Vila vence</b> quando todas as cartas Bruxa em jogo são reveladas.</li>

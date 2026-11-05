@@ -1,4 +1,4 @@
-// Pixel art própria do Sabá. Cada sprite é uma grade de caracteres → cores da paleta.
+// Pixel art própria de Sabrina. Cada sprite é uma grade de caracteres → cores da paleta.
 // Sprites com `m: true` guardam só a metade esquerda (8 colunas) e são espelhados.
 
 export const PAL = {

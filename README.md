@@ -1,4 +1,4 @@
-# Sabá: a vila tem bruxas entre os vizinhos
+# Sabrina: a vila tem bruxas entre os vizinhos
 
 Jogo de dedução social com bruxas para 4 a 12 pessoas. Cada uma joga no próprio celular, reunidas numa call do Discord ou na mesma sala.
 É feito em HTML/CSS/JS puro, sem build e sem dependências, e é hospedado no GitHub Pages.

@@ -1,4 +1,4 @@
-// Efeitos sonoros do Sabá: as deixas de abrir e fechar os olhos na Alvorada e
+// Efeitos sonoros de Sabrina: as deixas de abrir e fechar os olhos na Alvorada e
 // na Meia-Noite (badalada, sino, coruja e galo) e a risadinha de bruxa no fim
 // da partida. Os sons vêm de gravações CC0 em sounds/ (créditos no README);
 // se alguma não carregar, toca a versão sintetizada com Web Audio.

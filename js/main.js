@@ -39,7 +39,7 @@ function renderHome() {
   $('#app').innerHTML = `
   <div class="hero">
     <div class="hero-sprites">${icon('morcego', 'hero-bat')}${icon('abobora', 'hero-main')}${icon('bruxa', 'hero-main')}${icon('corvo', 'hero-main')}${icon('morcego', 'hero-bat flip-x')}</div>
-    <h1>SABÁ</h1>
+    <h1>SABRINA</h1>
     <p class="tagline">Há bruxas escondidas entre os vizinhos.</p>
     <p class="muted">Dedução social para 4 a 12 pessoas, cada uma no próprio celular.</p>
     <button class="ghost small" data-a="sound">${soundLabel()}</button>
@@ -218,14 +218,26 @@ function renderSheet() {
   let html = '';
   if (app.screen === 'home' || app.view?.phase === 'lobby' || !app.view) html = app.ui.sheet === 'rules' ? rulesSheet() : '';
   else html = sheetFor(app);
-  if (!html) { el.hidden = true; el.innerHTML = ''; el.dataset.key = ''; return; }
+  if (!html) { el.hidden = true; el.innerHTML = ''; el.dataset.key = ''; el.dataset.id = ''; return; }
   // evita perder a rolagem da folha quando nada mudou
   if (el.dataset.key === html) return;
-  const scroll = el.firstElementChild?.scrollTop || 0;
-  el.innerHTML = html;
+  const v = app.view;
+  const id = JSON.stringify([app.screen, app.ui.sheet, app.ui.play?.uid, v?.phase, v?.pending?.kind, v?.night?.stage, v?.dawn?.stage]);
+  const box = el.firstElementChild;
+  const tpl = document.createElement('template');
+  tpl.innerHTML = html.trim();
+  const next = tpl.content.firstElementChild;
+  if (!el.hidden && box && next && el.dataset.id === id && box.className === next.className && tpl.content.childElementCount === 1) {
+    // mesma folha: troca só o conteúdo, sem reabrir a caixa (nem repetir a animação)
+    const scroll = box.scrollTop;
+    box.replaceChildren(...next.childNodes);
+    box.scrollTop = scroll;
+  } else {
+    el.innerHTML = html;
+    el.hidden = false;
+  }
   el.dataset.key = html;
-  el.hidden = false;
-  if (el.firstElementChild) el.firstElementChild.scrollTop = scroll;
+  el.dataset.id = id;
 }
 
 // ================= sala =================
@@ -412,7 +424,7 @@ const H = {
   // lobby
   async share(d) {
     try {
-      if (navigator.share) await navigator.share({ title: 'Sabá', text: `Entre na sala ${app.room.code} do Sabá`, url: d.link });
+      if (navigator.share) await navigator.share({ title: 'Sabrina', text: `Entre na sala ${app.room.code} de Sabrina`, url: d.link });
       else { await navigator.clipboard.writeText(d.link); toast('Link copiado!'); }
     } catch { /* cancelado */ }
   },

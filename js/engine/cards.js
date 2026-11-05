@@ -1,4 +1,4 @@
-// Dados do jogo "Sabá": cartas, moradores e tabela de preparação.
+// Dados do jogo "Sabrina": cartas, moradores e tabela de preparação.
 
 export const TRIALS = {
   bruxa:    { name: 'Bruxa', desc: 'Você faz parte do coven, para sempre, mesmo se perder esta carta. Se ela for revelada, você morre.' },

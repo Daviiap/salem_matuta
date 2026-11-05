@@ -1,4 +1,4 @@
-// Motor de regras do Sabá. Puro: sem DOM e sem rede.
+// Motor de regras de Sabrina. Puro: sem DOM e sem rede.
 // O estado é um objeto JSON simples, alterado no lugar por applyAction/tick.
 import { CARDS, CHARACTERS, TRIALS, SETUP_TABLE } from './cards.js';
 import { newSeed, rand, shuffle, buildDeck, buildTrials, characterOptions, mkCard } from './setup.js';
