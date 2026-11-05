@@ -6,6 +6,7 @@ import { esc, $, toast, buzz, P, fmtSecs, icon } from './ui/dom.js';
 import { newUi, renderPlayer, renderModerator, sheetFor, rulesSheet } from './ui/game.js';
 import { installPixelAssets, spriteIds, spriteUrl } from './ui/pixel.js';
 import { setSky } from './ui/sky.js';
+import { playFx } from './ui/fx.js';
 import { unlock, cackle, bell, owl, rooster, cue, setAmbient, ambientEnabled } from './ui/audio.js';
 
 installPixelAssets();
@@ -310,6 +311,8 @@ function onView(v, receivedAt) {
   if (v.night?.stage !== prev?.night?.stage) ui.confessPick = false;
   if (ui.sheet === 'boticario' && (v.turn?.pid !== v.me || v.turn?.mode)) { ui.sheet = null; ui.botic = []; }
   render();
+  // efeitos depois de desenhar, quando os lugares já estão no lugar
+  if (prev) requestAnimationFrame(() => { try { playFx(prev, v); } catch (e) { console.warn('[fx]', e); } });
 }
 
 function startTest(n) {

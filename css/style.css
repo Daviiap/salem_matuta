@@ -581,3 +581,31 @@ body.peeking .peek, .peek.open { display: block; }
 .accuse-cards { flex-wrap: wrap; justify-content: center; }
 .accuse-cards .gcard:not(.sel) { filter: brightness(.55) saturate(.6); }
 .hot { color: #ff6b5b; }
+
+/* =========================================================
+   EFEITOS (js/ui/fx.js): camada acima da mesa, sem cliques
+   ========================================================= */
+#fx { position: fixed; inset: 0; pointer-events: none; z-index: 55; overflow: hidden; }
+.fx { position: fixed; left: 0; top: 0; transform: translate(-50%, -50%); will-change: transform, opacity; }
+.fx-card .gcard.xs { --w: 44px; --b: 2px; box-shadow: 4px 4px 0 rgba(0, 0, 0, .45); }
+.fx-text { font-family: var(--pixel); font-weight: 700; font-size: 1.5rem; white-space: nowrap; letter-spacing: .05em;
+  text-shadow: 2px 0 0 var(--ink), -2px 0 0 var(--ink), 0 2px 0 var(--ink), 0 -2px 0 var(--ink), 3px 3px 0 var(--ink); }
+.fx-text.red { color: #ff8a5b; }
+.fx-text.hot { color: #ff3b3b; font-size: 1.9rem; }
+.fx-text.blue { color: #8fd3ff; }
+.fx-text.good { color: var(--gold); font-size: 1.2rem; }
+.fx-text.witch { color: #d78bff; font-size: 2rem; }
+.fx-flash { box-shadow: 0 0 0 4px currentColor, 0 0 0 8px var(--ink); color: #ff8a5b; }
+.fx-flash.hot { color: #ff3b3b; background: rgba(255, 59, 59, .18); }
+.fx-flash.witch { color: #b45cff; background: rgba(140, 60, 220, .28); }
+.fx-flash.good { color: var(--gold); background: rgba(255, 210, 122, .18); }
+.fx-flash.dead { color: #9aa; background: rgba(0, 0, 0, .45); }
+.fx-spark img { width: 26px; height: 26px; }
+.fx-skull img { width: 56px; height: 56px; }
+.fx-rain img { width: 34px; height: 34px; }
+.fx-banner { font-family: var(--pixel); font-weight: 700; font-size: clamp(2rem, 7vw, 4rem); color: var(--orange); white-space: nowrap;
+  padding: 10px 28px; background: #15123a; letter-spacing: .08em;
+  box-shadow: 0 0 0 4px var(--gold), 0 0 0 8px var(--ink), 8px 8px 0 8px rgba(0, 0, 0, .5);
+  text-shadow: 3px 3px 0 var(--ink); }
+.fx-banner.good { color: var(--gold); }
+.fx-banner.witch { color: #d78bff; box-shadow: 0 0 0 4px #b45cff, 0 0 0 8px var(--ink), 8px 8px 0 8px rgba(0, 0, 0, .5); }
