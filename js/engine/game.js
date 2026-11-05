@@ -8,11 +8,18 @@ const fail = (msg) => { throw new GameError(msg); };
 
 const LOG_MAX = 250;
 export const SWAP_SECS = 30;
+// Meia-Noite: todos fecham os olhos, o coven acorda, depois o Caçador.
+export const NIGHT_SECS = { sleep: 10, witches: 30, witchesSleep: 5, hunter: 20, hunterSleep: 5 };
+// Alvorada: mesmo ritual, mas só o coven acorda (para entregar o Corvo).
+export const DAWN_SECS = { sleep: 10, witches: 30, wake: 5 };
+// quando o coven entra em acordo, espera um pouco antes do sino
+export const DECIDED_SECS = 3;
 
 export function createGame(config = {}) {
   return {
     phase: 'lobby',
-    config: { hourglass: 60, confess: 30, moderator: false, ...config },
+    // allSound: todos os aparelhos tocam os sons (senão, só o do anfitrião)
+    config: { hourglass: 60, confess: 30, moderator: false, allSound: false, ...config },
     seed: newSeed(),
     uidSeq: 0,
     players: [],
@@ -127,7 +134,7 @@ export function movePlayer(s, id, dir) {
   s.seq++;
 }
 
-export function startGame(s) {
+export function startGame(s, now = Date.now()) {
   const n = s.players.length;
   if (!SETUP_TABLE[n]) fail('São necessários de 4 a 12 jogadores.');
   // permite "jogar de novo": zera os jogadores e mantém nomes e ordem
@@ -139,14 +146,14 @@ export function startGame(s) {
   s.players.forEach((p, i) => { p.options = opts[i]; });
   if (opts[0].length === 1) {
     s.players.forEach((p) => { p.character = p.options[0]; });
-    dealAndDawn(s);
+    dealAndDawn(s, now);
   } else {
     s.phase = 'choose';
   }
   s.seq++;
 }
 
-function dealAndDawn(s) {
+function dealAndDawn(s, now = Date.now()) {
   const n = s.players.length;
   const per = SETUP_TABLE[n][3];
   const trials = buildTrials(s, n);
@@ -171,9 +178,48 @@ function dealAndDawn(s) {
 
   for (const p of s.players) log(s, `${name(p)} é ${CHARACTERS[p.character].name}.`);
   s.phase = 'dawn';
-  s.dawn = { votes: {} };
+  s.dawn = { stage: 'sleep', deadline: now + DAWN_SECS.sleep * 1000, votes: {}, target: null };
   updateWitchKnowledge(s);
-  log(s, 'Alvorada: o coven se reconhece e escolhe quem recebe o Corvo Agourento.');
+  log(s, `Alvorada: todos fecham os olhos (${DAWN_SECS.sleep} s).`);
+}
+
+// Etapas: sleep (todos fecham os olhos) → witches (o coven se reconhece e
+// escolhe quem recebe o Corvo) → wake (o coven fecha os olhos) → dia.
+function advanceDawn(s, now) {
+  const d = s.dawn;
+  if (!d) return;
+  if (d.stage === 'sleep') {
+    d.stage = 'witches';
+    d.deadline = now + DAWN_SECS.witches * 1000;
+    log(s, `O sino toca: o coven acorda e tem ${DAWN_SECS.witches} s para entregar o Corvo Agourento.`);
+  } else if (d.stage === 'witches') {
+    const ws = s.players.filter((q) => q.everWitch);
+    let target = d.target || agreedDawn(s);
+    if (!target) {
+      // sem acordo a tempo: sorteia entre os votos dados ou, sem votos, entre quem não é do coven
+      const voted = ws.map((w) => d.votes[w.id]).filter(Boolean);
+      const pool = voted.length ? voted : s.players.filter((q) => !q.everWitch).map((q) => q.id);
+      target = pool[Math.floor(rand(s) * pool.length)];
+      log(s, `O tempo acabou: o destino entregou o Corvo a ${name(getP(s, target))}.`, ws.map((w) => w.id));
+    }
+    d.target = target;
+    d.stage = 'wake';
+    d.deadline = now + DAWN_SECS.wake * 1000;
+    log(s, 'O sino toca de novo: o coven fecha os olhos.');
+  } else if (d.stage === 'wake') {
+    const t = getP(s, d.target);
+    const corvo = s.aside.splice(s.aside.findIndex((c) => c.type === 'corvo'), 1)[0];
+    t.front.push(corvo);
+    s.dawn = null;
+    s.phase = 'day';
+    log(s, `Todos abrem os olhos. O Corvo Agourento pousou diante de ${name(t)}. ${name(t)} começa.`);
+    startTurn(s, t.id);
+  }
+}
+
+function agreedDawn(s) {
+  const votes = s.players.filter((q) => q.everWitch).map((w) => s.dawn.votes[w.id]);
+  return votes.length && votes.every((v) => v && v === votes[0]) ? votes[0] : null;
 }
 
 function updateWitchKnowledge(s) {
@@ -256,7 +302,7 @@ function doStep(s, st, now) {
       startSwap(s, now);
       return;
     case 'night':
-      startNight(s);
+      startNight(s, now);
       return;
   }
 }
@@ -396,33 +442,71 @@ function checkWin(s) {
 }
 
 // ---------- noite ----------
-function startNight(s) {
+// Etapas, cada uma com uma deixa sonora no aparelho do anfitrião:
+// sleep (todos fecham os olhos) → witches (o coven acorda e escolhe) →
+// witchesSleep (o coven fecha os olhos) → hunter (o Caçador acorda e protege) →
+// hunterSleep (o Caçador fecha os olhos) → confess (todos abrem os olhos).
+function startNight(s, now = Date.now()) {
   s.phase = 'night';
   const hunter = alivePlayers(s).find((p) => p.trials.some((t) => t.type === 'cacador' && !t.revealed));
-  s.night = { stage: 'act', votes: {}, hunter: hunter?.id ?? null, pick: null, confessed: {}, done: {}, deadline: null, decoy: {}, deaths: [] };
+  s.night = {
+    stage: 'sleep', deadline: now + NIGHT_SECS.sleep * 1000, votes: {}, victim: null,
+    hunter: hunter?.id ?? null, pick: null, confessed: {}, done: {}, decoy: {}, deaths: [],
+  };
   s.pending = { kind: 'night' };
   updateWitchKnowledge(s);
-  log(s, 'Meia-Noite! Todos olham para o próprio celular.');
+  log(s, `Meia-Noite! Todos fecham os olhos (${NIGHT_SECS.sleep} s).`);
 }
 
 function nightWitches(s) { return alivePlayers(s).filter((p) => p.everWitch); }
 
-function nightVictim(s) {
+function agreedVictim(s) {
   const ws = nightWitches(s);
   if (!ws.length) return null;
   const votes = ws.map((w) => s.night.votes[w.id]);
   return votes.every((v) => v && v === votes[0]) ? votes[0] : null;
 }
 
-function maybeConfessStage(s, now) {
+function nightVictim(s) { return s.night.victim; }
+
+// avança a Meia-Noite para a próxima etapa (por acordo, escolha ou fim do tempo)
+function advanceNight(s, now) {
   const n = s.night;
-  if (n.stage !== 'act') return;
-  const witchesDone = !nightWitches(s).length || nightVictim(s);
-  const hunterDone = !n.hunter || !getP(s, n.hunter)?.alive || n.pick;
-  if (witchesDone && hunterDone) {
+  if (!n) return;
+  if (n.stage === 'sleep') {
+    if (!nightWitches(s).length) { n.stage = 'witches'; advanceNight(s, now); return; }
+    n.stage = 'witches';
+    n.deadline = now + NIGHT_SECS.witches * 1000;
+    log(s, `O sino toca: o coven acorda e tem ${NIGHT_SECS.witches} s para escolher a vítima.`);
+  } else if (n.stage === 'witches') {
+    let victim = n.victim || agreedVictim(s);
+    const ws = nightWitches(s);
+    if (!victim && ws.length) {
+      // sem acordo a tempo: sorteia entre os votos dados ou, sem votos, entre quem não é do coven
+      const voted = ws.map((w) => n.votes[w.id]).filter((id) => getP(s, id)?.alive);
+      const pool = voted.length ? voted : alivePlayers(s).filter((p) => !p.everWitch).map((p) => p.id);
+      victim = pool.length ? pool[Math.floor(rand(s) * pool.length)] : null;
+      if (victim) log(s, `O tempo acabou: o destino escolheu ${name(getP(s, victim))} como vítima.`, ws.map((w) => w.id));
+    }
+    n.victim = victim;
+    n.stage = 'witchesSleep';
+    n.deadline = now + NIGHT_SECS.witchesSleep * 1000;
+    log(s, 'O sino toca de novo: o coven fecha os olhos.');
+  } else if (n.stage === 'witchesSleep') {
+    n.stage = 'hunter';
+    const h = n.hunter && getP(s, n.hunter);
+    // sem Caçador vivo a etapa dura um tempo aleatório, para ninguém perceber
+    const secs = h?.alive ? NIGHT_SECS.hunter : 6 + Math.floor(rand(s) * 7);
+    n.deadline = now + secs * 1000;
+    log(s, 'O Caçador acorda e ergue a Lanterna.');
+  } else if (n.stage === 'hunter') {
+    n.stage = 'hunterSleep';
+    n.deadline = now + NIGHT_SECS.hunterSleep * 1000;
+    log(s, 'O Caçador fecha os olhos.');
+  } else if (n.stage === 'hunterSleep') {
     n.stage = 'confess';
     n.deadline = now + s.config.confess * 1000;
-    log(s, `${s.config.confess} segundos para confissões.`);
+    log(s, `Todos abrem os olhos: ${s.config.confess} segundos para confissões.`);
   }
 }
 
@@ -485,7 +569,36 @@ function finalize(s, now = Date.now()) {
     advanceTurn(s);
     run(s, now);
   }
+  autoTurn(s, now);
   s.seq++;
+}
+
+function drawTwo(s, p) {
+  s.turn.mode = 'draw';
+  s.turn.hourglass = null;
+  s.steps.push({ t: 'draw', pid: p.id, track: true, notify: true }, { t: 'draw', pid: p.id, track: true, notify: true }, { t: 'lenhador', pid: p.id }, { t: 'endTurn' });
+}
+
+// Mão vazia não tem escolha: quem fica sem cartas depois de jogar encerra a
+// vez, e quem começa a vez sem cartas compra 2. A exceção é quem ainda pode
+// usar a Cartomante ou o Boticário, que agem antes de (ou em vez de) comprar.
+function autoTurn(s, now) {
+  for (let guard = 0; guard < 50; guard++) {
+    if (s.phase !== 'day' || s.pending || s.steps.length || !s.turn) return;
+    const p = getP(s, s.turn.pid);
+    if (!p?.alive || p.hand.length) return;
+    if (s.turn.mode === 'play') {
+      log(s, `${name(p)} ficou sem cartas e encerra a vez.`);
+      advanceTurn(s);
+    } else if (!s.turn.mode) {
+      const carto = has(s, p, 'cartomante') && p.uses.cartomante < 1 && s.deck.length > 0;
+      const botic = has(s, p, 'boticario') && p.uses.boticario < 2 && s.discard.some((c) => CARDS[c.type].color !== 'black');
+      if (carto || botic) return;
+      drawTwo(s, p);
+      log(s, `${name(p)} está sem cartas e compra 2.`);
+      run(s, now);
+    } else return;
+  }
 }
 
 function requireTurn(s, p, { fresh = false } = {}) {
@@ -520,28 +633,25 @@ function checkThreshold(s, accuser, target, accuserBonus) {
 }
 
 const ACTIONS = {
-  pickCharacter(s, p, a) {
+  pickCharacter(s, p, a, now) {
     if (s.phase !== 'choose') fail('Não é hora de escolher morador.');
     if (!p.options.includes(a.character)) fail('Morador inválido.');
     p.character = a.character;
-    if (s.players.every((q) => q.character)) dealAndDawn(s);
+    if (s.players.every((q) => q.character)) dealAndDawn(s, now);
   },
 
-  dawnVote(s, p, a) {
-    if (s.phase !== 'dawn') fail('Não é a Alvorada.');
-    if (!p.everWitch) return; // jogadores comuns só tocam numa tela de despiste
+  dawnVote(s, p, a, now) {
+    if (s.phase !== 'dawn' || s.dawn.stage !== 'witches') fail('Não é hora de entregar o Corvo.');
+    if (s.dawn.target) fail('O coven já decidiu.');
+    if (!p.everWitch) return;
     const t = getP(s, a.target);
     if (!t) fail('Alvo inválido.');
     s.dawn.votes[p.id] = t.id;
-    const ws = s.players.filter((q) => q.everWitch);
-    const votes = ws.map((w) => s.dawn.votes[w.id]);
-    if (votes.every((v) => v && v === votes[0])) {
-      const corvo = s.aside.splice(s.aside.findIndex((c) => c.type === 'corvo'), 1)[0];
-      t.front.push(corvo);
-      s.dawn = null;
-      s.phase = 'day';
-      log(s, `O Corvo Agourento pousou diante de ${name(t)}. ${name(t)} começa.`);
-      startTurn(s, t.id);
+    const agreed = agreedDawn(s);
+    if (agreed) {
+      // acordo: trava a escolha e o sino toca em alguns segundos
+      s.dawn.target = agreed;
+      s.dawn.deadline = Math.min(s.dawn.deadline, now + DECIDED_SECS * 1000);
     }
   },
 
@@ -562,9 +672,7 @@ const ACTIONS = {
 
   draw(s, p) {
     requireTurn(s, p, { fresh: true });
-    s.turn.mode = 'draw';
-    s.turn.hourglass = null;
-    s.steps.push({ t: 'draw', pid: p.id, track: true, notify: true }, { t: 'draw', pid: p.id, track: true, notify: true }, { t: 'lenhador', pid: p.id }, { t: 'endTurn' });
+    drawTwo(s, p);
     log(s, `${name(p)} compra 2 cartas.`);
   },
 
@@ -731,21 +839,29 @@ const ACTIONS = {
 
   nightVote(s, p, a, now) {
     const n = s.night;
-    if (!n || n.stage !== 'act') fail('Não é hora disso.');
+    if (!n || n.stage !== 'witches') fail('Não é hora disso.');
+    if (n.victim) fail('O coven já decidiu.');
     if (!p.alive || !p.everWitch) return;
     const t = getP(s, a.target);
     if (!t?.alive) fail('Escolha alguém vivo.');
     n.votes[p.id] = t.id;
-    maybeConfessStage(s, now);
+    const agreed = agreedVictim(s);
+    if (agreed) {
+      // acordo: trava a escolha e o sino toca em alguns segundos
+      n.victim = agreed;
+      n.deadline = Math.min(n.deadline, now + DECIDED_SECS * 1000);
+    }
   },
 
   hunterPick(s, p, a, now) {
     const n = s.night;
-    if (!n || n.stage !== 'act' || n.hunter !== p.id) fail('Não é hora disso.');
+    if (!n || n.stage !== 'hunter' || n.hunter !== p.id) fail('Não é hora disso.');
+    if (n.pick) fail('Você já ergueu a Lanterna.');
     const t = requireTarget(s, p, a.target, 'protegido');
     n.pick = t.id;
     log(s, `Você ergueu a Lanterna para ${name(t)}.`, [p.id]);
-    maybeConfessStage(s, now);
+    // trava a escolha e dá alguns segundos antes da próxima deixa
+    n.deadline = Math.min(n.deadline, now + DECIDED_SECS * 1000);
   },
 
   confess(s, p, a, now) {
@@ -799,6 +915,8 @@ export function moderatorAction(s, a, now = Date.now()) {
       break;
     case 'endNightTimer':
       if (s.night?.stage === 'confess') { maybeResolveNight(s, now, true); }
+      else if (s.night) advanceNight(s, now);
+      else if (s.dawn) advanceDawn(s, now);
       else if (s.pending?.kind === 'swap') resolveSwap(s);
       else fail('Não há contagem em andamento.');
       break;
@@ -821,6 +939,16 @@ export function tick(s, now = Date.now()) {
       s.turn.mode = 'draw';
       s.steps.push({ t: 'draw', pid: p.id, track: true, notify: true }, { t: 'draw', pid: p.id, track: true, notify: true }, { t: 'lenhador', pid: p.id }, { t: 'endTurn' });
     }
+    finalize(s, now);
+    return true;
+  }
+  if (s.phase === 'dawn' && s.dawn && now >= s.dawn.deadline) {
+    advanceDawn(s, now);
+    finalize(s, now);
+    return true;
+  }
+  if (s.night && s.night.stage !== 'confess' && now >= s.night.deadline) {
+    advanceNight(s, now);
     finalize(s, now);
     return true;
   }

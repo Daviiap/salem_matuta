@@ -75,8 +75,8 @@ export function viewFor(s, viewer, { all = false } = {}) {
   }
 
   if (s.dawn) {
-    v.dawn = {};
-    if (me?.everWitch || all) v.dawn.votes = s.dawn.votes;
+    v.dawn = { stage: s.dawn.stage, deadline: s.dawn.deadline };
+    if (me?.everWitch || all) { v.dawn.votes = s.dawn.votes; v.dawn.target = s.dawn.target; }
   }
 
   const n = s.night;
@@ -86,7 +86,7 @@ export function viewFor(s, viewer, { all = false } = {}) {
     const hunter = me && n.hunter === me.id;
     v.night.role = witch ? 'witch' : hunter ? 'hunter' : 'none';
     if (hunter && witch) v.night.role = 'both';
-    if (witch || all) v.night.votes = n.votes;
+    if (witch || all) { v.night.votes = n.votes; v.night.victim = n.victim; }
     if (hunter || all) v.night.pick = n.pick;
     if (all) { v.night.hunter = n.hunter; }
     v.night.canSacristao = me ? has(s, me, 'sacristao') && me.uses.sacristao < 1 : false;

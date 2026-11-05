@@ -31,8 +31,11 @@ export function rulesHtml() {
   <ul class="plain">
     <li><b>Alvorada:</b> no começo, o coven se reconhece e entrega o Corvo Agourento a alguém, que começa a partida.</li>
     <li><b>Eclipse:</b> quem comprou escolhe uma carta de quem tem o Corvo para revelar. Depois, cada pessoa escolhe, às cegas, uma carta de equipe do vizinho seguinte. Quem não escolher em 30 segundos recebe uma carta sorteada.</li>
-    <li><b>Meia-Noite:</b> é sempre a última carta do baralho. O coven escolhe uma vítima, o Caçador ergue a Lanterna para proteger outra pessoa e todos podem <b>confessar</b> (revelar uma carta própria) para se salvar. Em seguida, o baralho é refeito.</li>
-    <li>Durante a Alvorada e a Meia-Noite, <b>todos</b> mexem no celular, assim ninguém se entrega.</li>
+    <li><b>Meia-Noite:</b> é sempre a última carta do baralho. Tudo acontece de <b>olhos fechados</b>, guiado por sons: <i>badalada grave</i>, todos fecham os olhos (10 s); <i>sino</i>, as bruxas abrem os olhos e escolhem juntas a vítima (até 30 s; sem acordo, o destino sorteia); <i>sino</i>, as bruxas fecham os olhos; <i>coruja</i>, o Caçador abre os olhos e ergue a Lanterna para proteger outra pessoa (até 20 s); <i>coruja</i>, o Caçador fecha os olhos; <i>galo</i>, todos abrem os olhos e podem <b>confessar</b> (revelar uma carta própria) para se salvar. Em seguida, o baralho é refeito.</li>
+    <li><b>Alvorada:</b> segue o mesmo ritual: <i>badalada grave</i>, todos fecham os olhos; <i>sino</i>, as bruxas abrem os olhos, se reconhecem e entregam o Corvo Agourento (até 30 s; sem acordo, o destino sorteia); <i>sino</i>, as bruxas fecham os olhos; <i>galo</i>, todos abrem os olhos e começa o dia.</li>
+    <li>Por padrão, só o aparelho do anfitrião toca os sons: deixe-o com volume alto, no meio da mesa. Os outros celulares vibram. Durante a noite, todos mexam no celular, para o barulho dos toques não entregar ninguém.</li>
+    <li><b>Com moderador</b> não há sinos nem vibração: o moderador anuncia quando cada um fecha e abre os olhos, seguindo o roteiro na tela dele.</li>
+    <li>O botão <b>♪</b> liga e desliga o som ambiente. Os efeitos (sino, coruja, galo, risada) continuam sempre ligados.</li>
   </ul>
   <h3>Cartas de equipe</h3><ul>${trials}</ul>
   <table><tr><th>Jogadores</th><th>Bruxas</th><th>Cartas por pessoa</th></tr>${table}</table>

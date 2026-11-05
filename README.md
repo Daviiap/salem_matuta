@@ -35,6 +35,7 @@ As fontes são Pixelify Sans e VT323, carregadas do Google Fonts. Sem internet, 
 python3 -m http.server 8000     # abra http://localhost:8000
 npm test                        # testes do motor (node --test)
 ```
+- Para testar a interface sozinho, abra `http://localhost:8000/?teste` (ou `?teste=8` para 8 pessoas): a sala inteira roda na aba, bots jogam pelos outros e um painel permite trocar de jogador, puxar a Meia-Noite, dar cartas e tocar os sons.
 - Para simular vários jogadores no mesmo navegador, abra abas com `?perfil=1`, `?perfil=2`, etc. Cada perfil tem a própria identidade.
 - A WebCrypto exige `https` ou `localhost`. Pelo IP da rede local (`http://192.168…`), o celular não consegue cifrar. Use o GitHub Pages ou um túnel https.
 
@@ -43,8 +44,21 @@ npm test                        # testes do motor (node --test)
 index.html, css/style.css
 js/engine/   motor puro: cards.js (dados), setup.js, game.js (regras), view.js (o que cada um vê)
 js/net/      mqtt.js (cliente MQTT-over-WebSocket), crypto.js, room.js (anfitrião e cliente)
-js/ui/       pixel.js (sprites em pixel art), dom.js (cartas), game.js (mesa, folhas, moderador), rules.js
+js/net/testroom.js  sala local do modo de teste (?teste), com bots
+js/ui/       pixel.js (sprites em pixel art), dom.js (cartas), game.js (mesa, folhas, moderador), rules.js, audio.js (sons)
 js/main.js   telas e eventos
+sounds/      gravações dos efeitos sonoros (CC0)
 tests/       testes do motor, inclusive 200 partidas aleatórias com bots
 ```
 As cartas, os moradores e a tabela de preparação ficam em `js/engine/cards.js`. Dá para ajustar nomes, quantidades e textos ali.
+
+## Créditos dos sons
+Todos em domínio público (CC0), do [Freesound](https://freesound.org). Foram recortados e tiveram o volume ajustado. O som ambiente toca em loop e pode ser silenciado no botão ♪; os efeitos tocam sempre.
+
+| Arquivo | Som original | Autor |
+|---|---|---|
+| `sounds/sino.mp3` | [Death Knell - Totenglocke](https://freesound.org/people/donStevo/sounds/553299/) | donStevo |
+| `sounds/coruja.mp3` | [Owl Hoot](https://freesound.org/people/Breviceps/sounds/465697/) | Breviceps |
+| `sounds/galo.mp3` | [Rooster Crow 1](https://freesound.org/people/BenjaminNelan/sounds/435508/) | BenjaminNelan |
+| `sounds/risada.mp3` | [Witch's Laugh.wav](https://freesound.org/people/NikoMyth/sounds/348142/) | NikoMyth |
+| `sounds/ambiente.mp3` | [Witch forest Atmo](https://freesound.org/people/szegvari/sounds/577936/) (emendado para tocar em loop) | szegvari |

@@ -1,9 +1,12 @@
 import { HostRoom, ClientRoom, hostedRooms, forgetRoom, brokerUrl, setBrokerUrl, BROKERS } from './net/room.js';
 import { cryptoAvailable } from './net/crypto.js';
+import { TestRoom } from './net/testroom.js';
+import { CARDS } from './engine/cards.js';
 import { esc, $, toast, buzz, P, fmtSecs, icon } from './ui/dom.js';
 import { newUi, renderPlayer, renderModerator, sheetFor, rulesSheet } from './ui/game.js';
 import { installPixelAssets, spriteIds, spriteUrl } from './ui/pixel.js';
 import { setSky } from './ui/sky.js';
+import { unlock, cackle, bell, owl, rooster, cue, setAmbient, ambientEnabled } from './ui/audio.js';
 
 installPixelAssets();
 document.getElementById('ic-home').src = spriteUrl('casa');
@@ -22,11 +25,12 @@ const app = {
 window.saba = app; // útil para depuração
 
 const params = new URLSearchParams(location.search);
+const isLocal = /^(localhost|127\.0\.0\.1|\[::1\])$|\.localhost$|\.test$/.test(location.hostname) || params.has('teste');
 
 // ================= telas =================
 function renderHome() {
   $('#topbar').hidden = true;
-  document.body.classList.remove('night', 'has-dock');
+  document.body.classList.remove('night', 'has-dock', 'in-game');
   setSky(1, false);
   const code = (params.get('sala') || '').toUpperCase();
   const lastName = localStorage.getItem('saba-name') || '';
@@ -38,6 +42,7 @@ function renderHome() {
     <h1>SABÁ</h1>
     <p class="tagline">Há bruxas escondidas entre os vizinhos.</p>
     <p class="muted">Dedução social para 4 a 12 pessoas, cada uma no próprio celular.</p>
+    <button class="ghost small" data-a="sound">${soundLabel()}</button>
   </div>
   ${secure ? '' : '<div class="panel warn">Este navegador não liberou a criptografia (WebCrypto). Abra o jogo por <b>https</b> (por exemplo, no GitHub Pages) ou em <b>localhost</b>.</div>'}
   <section class="panel stack">
@@ -64,9 +69,22 @@ function renderHome() {
       <button class="ghost small" style="margin-top:8px" data-a="saveBroker">Salvar</button>
     </details>
   </section>
-  <section class="panel"><button class="ghost block" data-a="rules">${icon('aprendiz', 'inline')} Regras</button></section>`;
+  <section class="panel"><button class="ghost block" data-a="rules">${icon('aprendiz', 'inline')} Regras</button></section>
+  ${isLocal ? `<section class="panel stack">
+    <h2>${icon('cartomante', 'inline')} Modo de teste</h2>
+    <p class="muted small-text">Roda a sala inteira nesta aba, sem internet. Bots jogam pelos outros e você pode trocar de jogador a qualquer momento.</p>
+    <div class="row"><label class="grow">Pessoas na mesa</label><input type="number" id="test-n" min="4" max="12" value="5" style="width:90px"></div>
+    <button class="ghost block" data-a="testMode">Abrir modo de teste</button>
+  </section>` : ''}`;
   const mod = $('#create-mod');
   mod.onchange = () => { $('#create-name-wrap').hidden = mod.checked; };
+}
+
+function soundLabel() { return ambientEnabled() ? '♪ Som ambiente ligado' : '♪ Som ambiente desligado'; }
+function syncSoundBtn() {
+  const b = $('#btn-sound');
+  b.classList.toggle('muted-btn', !ambientEnabled());
+  b.title = ambientEnabled() ? 'Silenciar som ambiente' : 'Ligar som ambiente';
 }
 
 function renderSprites() {
@@ -82,7 +100,7 @@ function renderLobby() {
   <section class="panel center">
     <p class="muted">Código da sala</p>
     <div class="code-big">${app.room.code}</div>
-    <button class="ghost small" data-a="share" data-link="${esc(link)}">Compartilhar link</button>
+    ${app.room.test ? '<p class="muted small-text">Sala local de teste: ninguém de fora entra.</p>' : `<button class="ghost small" data-a="share" data-link="${esc(link)}">Compartilhar link</button>`}
   </section>
   <section class="panel">
     <h2>${icon('casa', 'inline')} Na vila · ${n}/12</h2>
@@ -98,19 +116,24 @@ function renderLobby() {
     <h2>${icon('ampulheta', 'inline')} Ajustes</h2>
     <div class="row"><label class="grow">Ampulheta (segundos)</label><input type="number" id="cfg-hg" min="15" max="300" value="${v.config.hourglass}" style="width:110px"></div>
     <div class="row"><label class="grow">Tempo de confissão (segundos)</label><input type="number" id="cfg-cf" min="10" max="120" value="${v.config.confess}" style="width:110px"></div>
+    ${v.config.moderator ? '<p class="muted small-text">Com moderador não há sinos: você anuncia quando fechar e abrir os olhos (siga o roteiro na tela).</p>' : `<label class="check"><input type="checkbox" id="cfg-snd" ${v.config.allSound ? 'checked' : ''}> Todos os aparelhos tocam os sons</label>
+    <p class="muted small-text">Desmarcado, só este aparelho toca os sons da Alvorada e da Meia-Noite (deixe o volume alto); os outros só vibram.</p>`}
     <button class="block" data-a="start" ${n >= 4 && n <= 12 ? '' : 'disabled'}>Começar a partida ${n < 4 ? `(faltam ${4 - n})` : ''}</button>
-    ${app.room.moderator ? '' : '<p class="muted small-text">Você é o anfitrião: mantenha esta aba aberta. Se ela fechar, abra o jogo de novo e toque em "Retomar".</p>'}
+    ${app.room.moderator || app.room.test ? '' : '<p class="muted small-text">Você é o anfitrião: mantenha esta aba aberta. Se ela fechar, abra o jogo de novo e toque em "Retomar".</p>'}
   </section>` : `<section class="panel center"><p>${icon('ampulheta', 'inline')} Aguardando o anfitrião começar…</p></section>`}`;
   if (host) {
-    const save = () => app.room.setConfig({ hourglass: clamp(+$('#cfg-hg').value, 15, 300), confess: clamp(+$('#cfg-cf').value, 10, 120) });
+    const save = () => app.room.setConfig({ hourglass: clamp(+$('#cfg-hg').value, 15, 300), confess: clamp(+$('#cfg-cf').value, 10, 120), allSound: !!$('#cfg-snd')?.checked });
     $('#cfg-hg').onchange = save;
     $('#cfg-cf').onchange = save;
+    if ($('#cfg-snd')) $('#cfg-snd').onchange = save;
   }
 }
 
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x || a));
 
 function render() {
+  syncSoundBtn();
+  renderTestbar();
   if (app.screen === 'sprites') { renderSprites(); return; }
   if (app.screen === 'home') { renderHome(); renderSheet(); return; }
   $('#topbar').hidden = false;
@@ -129,9 +152,65 @@ function render() {
   // antes do primeiro dia o céu é de madrugada; no dia, escurece conforme a Meia-Noite se aproxima
   setSky(v.phase === 'day' || v.phase === 'night' ? v.dusk ?? 0 : v.phase === 'over' ? 0.15 : 0.85, v.phase === 'night');
   document.body.classList.toggle('has-dock', !v.moderator && !!v.me && v.phase !== 'lobby');
+  document.body.classList.toggle('in-game', v.phase !== 'lobby');
   if (v.phase === 'lobby') renderLobby();
   else $('#app').innerHTML = v.moderator ? renderModerator(app) : renderPlayer(app);
   renderSheet();
+  fitTable();
+}
+
+// os lugares da mesa são posicionados conforme o tamanho real dela: mede e,
+// se mudou, desenha de novo
+function fitTable() {
+  const el = document.querySelector('.roundtable');
+  if (!el) return;
+  const w = el.clientWidth, h = el.clientHeight;
+  const old = app.tableBox;
+  if (old && Math.abs(old.w - w) < 4 && Math.abs(old.h - h) < 4) return;
+  app.tableBox = { w, h };
+  $('#app').innerHTML = app.view.moderator ? renderModerator(app) : renderPlayer(app);
+}
+
+// ================= painel do modo de teste =================
+function renderTestbar() {
+  const el = $('#testbar');
+  const room = app.room;
+  if (!room?.test || !app.view) { el.hidden = true; el.innerHTML = ''; return; }
+  const v = app.view;
+  const t = v.test;
+  el.hidden = false;
+  if (!app.testOpen) { el.innerHTML = `<button class="small test-toggle" data-a="testToggle">TESTE ▸</button>`; return; }
+  const live = v.phase !== 'lobby';
+  const blacks = Object.keys(CARDS).filter((k) => CARDS[k].color === 'black');
+  const give = Object.keys(CARDS).filter((k) => CARDS[k].color !== 'black' && k !== 'corvo');
+  el.innerHTML = `<div class="test-panel">
+    <div class="row"><b class="grow">Modo de teste</b><button class="small ghost" data-a="testToggle">◂</button></div>
+    <label>Ver como</label>
+    <select data-change="testView">
+      ${v.players.map((p) => `<option value="${p.id}" ${p.id === t.viewing ? 'selected' : ''}>${esc(p.name)}${room.state.players.find((q) => q.id === p.id)?.everWitch && live ? ' (bruxa)' : ''}${p.alive ? '' : ' ✝'}</option>`).join('')}
+      <option value="" ${t.viewing ? '' : 'selected'}>Moderador (vê tudo)</option>
+    </select>
+    <label class="check"><input type="checkbox" data-change="testBots" ${t.bots ? 'checked' : ''}> Bots jogam pelos outros</label>
+    <div class="row"><label class="grow">Ritmo</label><select data-change="testSpeed" style="width:auto">
+      ${[[300, 'rápido'], [900, 'normal'], [2000, 'lento']].map(([ms, l]) => `<option value="${ms}" ${t.speed === ms ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+    <div class="test-btns">
+      <button class="small ghost" data-a="testStep">1 passo de bot</button>
+      <button class="small ghost" data-a="undo">Desfazer</button>
+      <button class="small ghost" data-a="testBell">🔔 Sino</button>
+      <button class="small ghost" data-a="testOwl">Coruja</button>
+      <button class="small ghost" data-a="testRooster">Galo</button>
+      <button class="small ghost" data-a="testCackle">Risada</button>
+      ${v.phase === 'lobby' ? `<button class="small ghost" data-a="testAdd">+ pessoa</button><button class="small ghost" data-a="testDel">− pessoa</button>`
+        : `<button class="small ghost" data-a="mod" data-m="skipTurn">Pular vez</button>
+           <button class="small ghost" data-a="mod" data-m="endNightTimer">Fim da contagem</button>
+           <button class="small ghost" data-a="testRestart">Nova partida</button>`}
+    </div>
+    ${live && v.phase !== 'over' ? `<label>Topo do baralho (${t.deck} cartas)</label>
+    <div class="test-btns">${blacks.map((k) => `<button class="small ghost" data-a="testBlack" data-c="${k}">${esc(CARDS[k].name)}</button>`).join('')}</div>
+    <label>Dar carta a quem você vê</label>
+    <div class="row"><select id="test-give" style="flex:1">${give.map((k) => `<option value="${k}">${esc(CARDS[k].name)}</option>`).join('')}</select>
+      <button class="small ghost" data-a="testGive">Dar</button></div>` : ''}
+  </div>`;
 }
 
 function renderSheet() {
@@ -154,7 +233,7 @@ function bindRoom(room) {
   app.room = room;
   app.view = null;
   app.ui = newUi();
-  app.ui.reportSeen = +localStorage.getItem('saba-report-' + room.code) || 0;
+  app.ui.reportSeen = room.test ? 0 : +localStorage.getItem('saba-report-' + room.code) || 0;
   app.screen = 'game';
   room.on('status', (st, msg) => {
     app.net = st;
@@ -166,7 +245,8 @@ function bindRoom(room) {
   room.on('kicked', () => { toast('Você foi removido da sala.'); leave(); });
   room.on('view', (v, receivedAt) => onView(v, receivedAt));
   room.start();
-  history.replaceState(null, '', `?sala=${room.code}${params.get('perfil') ? '&perfil=' + params.get('perfil') : ''}`);
+  if (room.test) history.replaceState(null, '', '?teste');
+  else history.replaceState(null, '', `?sala=${room.code}${params.get('perfil') ? '&perfil=' + params.get('perfil') : ''}`);
   keepAwake();
   render();
 }
@@ -180,11 +260,25 @@ function onView(v, receivedAt) {
   // reações a mudanças
   const m = v.me ? P(v, v.me) : null;
   if (prev) {
+    // só o aparelho do anfitrião toca os sons (com vários celulares tocando
+    // juntos, o atraso da rede vira eco); os outros só vibram
+    const soundHere = v.isHost || v.config?.allSound;
     if (v.phase === 'day' && v.turn?.pid === v.me && prev.turn?.pid !== v.me) buzz([100, 60, 100]);
-    if (v.phase === 'night' && prev.phase !== 'night') buzz([300]);
+    // deixas de abrir e fechar os olhos: um som para cada etapa
+    const st = v.night?.stage, pst = prev.night?.stage;
+    const ds = v.dawn?.stage, pds = prev.dawn?.stage;
+    let key = null;
+    if (st && st !== pst) key = 'night:' + st;
+    else if (ds && ds !== pds) key = 'dawn:' + ds;
+    else if (prev.phase === 'dawn' && v.phase === 'day') key = 'day:start';
+    if (key) {
+      // com moderador, é ele quem chama: sem sinos nem vibração
+      if (!v.config?.moderator) { if (soundHere) cue(key); buzz([400, 200, 400]); }
+    }
+    if (v.phase === 'over' && prev.phase !== 'over' && soundHere) cackle();
     if (v.pending?.kind === 'reveal' && v.pending.chooser === v.me && prev.pending?.kind !== 'reveal') buzz([80, 40, 80]);
     const newPriv = v.log.filter((e) => e.to && !prev.log.some((x) => x.id === e.id));
-    for (const e of newPriv.slice(-2)) toast(e.text);
+    if (!v.moderator) for (const e of newPriv.slice(-2)) toast(e.text);
   }
   // animações: cartas novas na mão e cartas recém-reveladas
   if (prev) {
@@ -204,6 +298,25 @@ function onView(v, receivedAt) {
   if (v.night?.stage !== prev?.night?.stage) ui.confessPick = false;
   if (ui.sheet === 'boticario' && (v.turn?.pid !== v.me || v.turn?.mode)) { ui.sheet = null; ui.botic = []; }
   render();
+}
+
+function startTest(n) {
+  app.room?.stop();
+  const room = TestRoom.create({ players: n, myName: localStorage.getItem('saba-name') || 'Você' });
+  app.testOpen = true;
+  bindRoom(room);
+}
+
+// troca de perspectiva no modo de teste: a interface recomeça do zero, como num aparelho novo
+function testChange(kind, el) {
+  const room = app.room;
+  if (!room?.test) return;
+  if (kind === 'testView') {
+    app.ui = newUi();
+    app.view = null;
+    room.viewAs(el.value);
+  } else if (kind === 'testBots') room.setBots(el.checked);
+  else if (kind === 'testSpeed') room.setSpeed(+el.value);
 }
 
 async function joinRoom(code, nm) {
@@ -271,6 +384,24 @@ const H = {
     render();
   },
   rules() { app.ui.sheet = 'rules'; renderSheet(); },
+  sound() { unlock(); setAmbient(!ambientEnabled()); render(); },
+
+  // modo de teste
+  testMode() {
+    const n = clamp(+($('#test-n')?.value || 5), 4, 12);
+    startTest(n);
+  },
+  testToggle() { app.testOpen = !app.testOpen; renderTestbar(); },
+  testStep() { app.room.botStep(); },
+  testBell() { unlock(); bell(); },
+  testOwl() { unlock(); owl(); },
+  testRooster() { unlock(); rooster(); },
+  testCackle() { unlock(); cackle(); },
+  testAdd() { app.room.addBot(); },
+  testDel() { app.room.removeBot(); },
+  testRestart() { app.ui.overSeen = 0; app.room.startGame(); },
+  testBlack(d) { app.room.blackOnTop(d.c); toast(`${CARDS[d.c].name} está no topo do baralho.`); },
+  testGive() { app.room.giveCard($('#test-give').value); },
   closeSheet() {
     if (app.ui.sheet) app.ui.sheet = null;
     else if (app.ui.play) app.ui.play = null;
@@ -302,7 +433,6 @@ const H = {
   // partida
   pickChar(d) { send({ type: 'pickCharacter', character: d.c }); },
   dawnVote(d) { send({ type: 'dawnVote', target: d.pid }); },
-  decoy(d) { app.ui.decoy = d.pid; render(); },
   nightVote(d) { send({ type: 'nightVote', target: d.pid }); },
   hunterPick(d) { send({ type: 'hunterPick', target: d.pid }); },
   confessOpen() { app.ui.confessPick = true; render(); },
@@ -367,6 +497,19 @@ const H = {
   mod(d) { app.room.mod({ type: d.m }); },
 };
 
+// lembra se a Crônica da vila está aberta ('toggle' não sobe, por isso a captura)
+document.addEventListener('toggle', (e) => {
+  if (e.target.classList?.contains('log-box')) localStorage.setItem('saba-log-open', e.target.open ? '1' : '0');
+}, true);
+
+// a mesa redonda depende da largura da tela
+let resizeTimer;
+addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => { if (app.view && app.screen === 'game') render(); }, 150); });
+
+// navegadores só liberam áudio depois de um gesto
+document.addEventListener('pointerdown', unlock);
+document.addEventListener('keydown', unlock);
+
 document.addEventListener('click', (e) => {
   const el = e.target.closest('[data-a]');
   if (!el) {
@@ -381,6 +524,8 @@ document.addEventListener('click', (e) => {
 document.addEventListener('change', (e) => {
   const el = e.target.closest('[data-a="opt"]');
   if (el) H.opt({ ...el.dataset }, el);
+  const tc = e.target.closest('[data-change]');
+  if (tc) testChange(tc.dataset.change, tc);
 });
 
 $('#btn-home').onclick = () => {
@@ -401,6 +546,7 @@ setInterval(() => {
 // entrada direta: ?sala=XXXX com nome salvo para essa sala → reconecta
 (async function boot() {
   if (params.has('sprites')) { app.screen = 'sprites'; render(); return; }
+  if (params.has('teste')) { startTest(clamp(+params.get('teste') || 5, 4, 12)); return; }
   const code = (params.get('sala') || '').toUpperCase();
   if (/^[A-Z]{4}$/.test(code)) {
     if (HostRoom.resume(code) && hostedRooms().some((r) => r.code === code)) {

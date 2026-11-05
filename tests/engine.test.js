@@ -12,14 +12,18 @@ function setup(n, seed = 1) {
   s.seed = seed;
   for (let i = 0; i < n; i++) addPlayer(s, 'p' + i, 'Jogador ' + i);
   startGame(s);
-  if (s.phase === 'choose') for (const p of s.players) applyAction(s, p.id, { type: 'pickCharacter', character: p.options[0] });
+  if (s.phase === 'choose') for (const p of s.players) applyAction(s, p.id, { type: 'pickCharacter', character: p.options[0] }, 0);
+  if (s.dawn) s.dawn.deadline = 10000; // relógio dos testes começa em 0
   return s;
 }
 
 function finishDawn(s, target = null) {
   const ws = s.players.filter((p) => p.everWitch);
   const t = target || s.players[0].id;
-  for (const w of ws) applyAction(s, w.id, { type: 'dawnVote', target: t });
+  tick(s, 10000);
+  for (const w of ws) applyAction(s, w.id, { type: 'dawnVote', target: t }, 10000);
+  tick(s, 13000);
+  tick(s, 18000);
 }
 
 const give = (s, pid, type) => { const c = { uid: 'x' + Math.random(), type }; getP(s, pid).hand.push(c); return c; };
@@ -43,13 +47,38 @@ test('alvorada exige unanimidade do coven e o escolhido começa', () => {
   const s = setup(6, 3);
   const ws = s.players.filter((p) => p.everWitch);
   assert.equal(ws.length, 2);
-  applyAction(s, ws[0].id, { type: 'dawnVote', target: 'p2' });
-  applyAction(s, ws[1].id, { type: 'dawnVote', target: 'p3' });
+  assert.equal(s.dawn.stage, 'sleep');
+  assert.throws(() => applyAction(s, ws[0].id, { type: 'dawnVote', target: 'p2' }, 0), GameError);
+  tick(s, 10000);
+  assert.equal(s.dawn.stage, 'witches');
+  applyAction(s, ws[0].id, { type: 'dawnVote', target: 'p2' }, 11000);
+  applyAction(s, ws[1].id, { type: 'dawnVote', target: 'p3' }, 11000);
+  assert.equal(s.dawn.stage, 'witches');
+  applyAction(s, ws[1].id, { type: 'dawnVote', target: 'p2' }, 12000);
+  assert.equal(s.dawn.stage, 'witches'); // acordo: 3 s até o sino
+  assert.equal(s.dawn.target, 'p2');
+  assert.throws(() => applyAction(s, ws[0].id, { type: 'dawnVote', target: 'p3' }, 13000), GameError);
+  tick(s, 14999);
+  assert.equal(s.dawn.stage, 'witches');
+  tick(s, 15000);
+  assert.equal(s.dawn.stage, 'wake');
+  tick(s, 19999);
   assert.equal(s.phase, 'dawn');
-  applyAction(s, ws[1].id, { type: 'dawnVote', target: 'p2' });
+  tick(s, 20000);
   assert.equal(s.phase, 'day');
   assert.equal(s.turn.pid, 'p2');
   assert.ok(getP(s, 'p2').front.some((c) => c.type === 'corvo'));
+});
+
+test('alvorada: sem acordo, o destino entrega o Corvo', () => {
+  const s = setup(6, 3);
+  tick(s, 10000);
+  tick(s, 40000);
+  assert.equal(s.dawn.stage, 'wake');
+  assert.equal(getP(s, s.dawn.target).everWitch, false);
+  tick(s, 45000);
+  assert.equal(s.phase, 'day');
+  assert.ok(getP(s, s.turn.pid).front.some((c) => c.type === 'corvo'));
 });
 
 test('acusação chega a 7 e pede revelação; excesso é descartado', () => {
@@ -102,13 +131,28 @@ test('meia-noite: vítima morre sem proteção; Lanterna salva', () => {
     const turnP = s.turn.pid;
     applyAction(s, turnP, { type: 'draw' }, 0);
     assert.equal(s.phase, 'night');
-    for (const w of ws) applyAction(s, w.id, { type: 'nightVote', target: victim.id }, 0);
+    assert.equal(s.night.stage, 'sleep');
+    assert.throws(() => applyAction(s, ws[0].id, { type: 'nightVote', target: victim.id }, 0), GameError);
+    tick(s, 10000);
+    assert.equal(s.night.stage, 'witches');
+    for (const w of ws) applyAction(s, w.id, { type: 'nightVote', target: victim.id }, 11000);
+    assert.equal(s.night.stage, 'witches'); // acordo: 3 s até o sino
+    assert.equal(s.night.victim, victim.id);
+    tick(s, 14000);
+    assert.equal(s.night.stage, 'witchesSleep');
+    tick(s, 19000);
+    assert.equal(s.night.stage, 'hunter');
     const hunter = s.night.hunter;
     if (hunter) {
       const pick = protect ? victim.id : s.players.find((p) => p.id !== hunter && p.id !== victim.id).id;
       if (hunter === victim.id) continue;
-      applyAction(s, hunter, { type: 'hunterPick', target: pick }, 0);
-    }
+      applyAction(s, hunter, { type: 'hunterPick', target: pick }, 19500);
+      assert.equal(s.night.stage, 'hunter'); // escolha travada, 3 s até a deixa
+      assert.throws(() => applyAction(s, hunter, { type: 'hunterPick', target: pick }, 20000), GameError);
+      tick(s, 22500);
+    } else tick(s, 40000);
+    assert.equal(s.night.stage, 'hunterSleep');
+    tick(s, 50000);
     assert.equal(s.night.stage, 'confess');
     tick(s, 10 ** 9);
     assert.equal(getP(s, victim.id).alive, protect);
@@ -165,6 +209,60 @@ test('laço de sangue mata o parceiro', () => {
   assert.equal(b.alive, false);
 });
 
+test('meia-noite: sem acordo, o destino sorteia entre os votos', () => {
+  const s = setup(7, 33);
+  finishDawn(s, 'p0');
+  const ws = s.players.filter((p) => p.everWitch);
+  assert.ok(ws.length >= 2);
+  s.deck.unshift(...s.deck.splice(s.deck.findIndex((c) => c.type === 'meianoite'), 1));
+  applyAction(s, s.turn.pid, { type: 'draw' }, 0);
+  tick(s, 10000);
+  const others = s.players.filter((p) => !p.everWitch);
+  applyAction(s, ws[0].id, { type: 'nightVote', target: others[0].id }, 12000);
+  applyAction(s, ws[1].id, { type: 'nightVote', target: others[1].id }, 12000);
+  assert.equal(s.night.stage, 'witches');
+  tick(s, 39000);
+  assert.equal(s.night.stage, 'witches');
+  tick(s, 40000);
+  assert.equal(s.night.stage, 'witchesSleep');
+  assert.ok([others[0].id, others[1].id].includes(s.night.victim));
+});
+
+test('meia-noite: sem votos, a vítima é sorteada fora do coven', () => {
+  const s = setup(6, 8);
+  finishDawn(s, 'p0');
+  s.deck.unshift(...s.deck.splice(s.deck.findIndex((c) => c.type === 'meianoite'), 1));
+  applyAction(s, s.turn.pid, { type: 'draw' }, 0);
+  tick(s, 10000);
+  tick(s, 40000);
+  assert.equal(s.night.stage, 'witchesSleep');
+  assert.equal(getP(s, s.night.victim).everWitch, false);
+});
+
+test('quem joga a última carta encerra a vez sozinho', () => {
+  const s = setup(5, 12);
+  finishDawn(s, 'p0');
+  const p = getP(s, s.turn.pid);
+  const target = s.players.find((q) => q.id !== p.id && !q.front.some((c) => c.type === 'amuleto'));
+  p.hand = [];
+  const c = give(s, p.id, 'boato');
+  applyAction(s, p.id, { type: 'play', uid: c.uid, targets: [target.id] }, 20000);
+  assert.notEqual(s.turn.pid, p.id);
+  assert.ok(s.log.some((e) => e.text.includes('ficou sem cartas')));
+});
+
+test('quem começa a vez sem cartas compra 2 sozinho', () => {
+  const s = setup(5, 13);
+  finishDawn(s, 'p0');
+  const cur = getP(s, s.turn.pid);
+  const next = s.players[(s.players.indexOf(cur) + 1) % s.players.length];
+  next.character = 'padre'; // sem Cartomante nem Boticário
+  next.hand = [];
+  applyAction(s, cur.id, { type: 'draw' }, 20000);
+  assert.ok(s.log.some((e) => e.text === `${next.name} está sem cartas e compra 2.`));
+  assert.ok(next.hand.length >= 2 || s.phase !== 'day' || s.turn.pid !== next.id);
+});
+
 test('vista do jogador esconde cartas alheias', () => {
   const s = setup(5, 44);
   const v = viewFor(s, 'p0');
@@ -182,6 +280,7 @@ function rnd(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
 function botStep(s, now) {
   const alive = alivePlayers(s);
   if (s.phase === 'dawn') {
+    if (s.dawn.stage !== 'witches' || s.dawn.target || Math.random() < 0.2) return;
     const t = rnd(s.players).id;
     for (const w of s.players.filter((p) => p.everWitch)) applyAction(s, w.id, { type: 'dawnVote', target: t }, now);
     return;
@@ -206,15 +305,20 @@ function botStep(s, now) {
   }
   if (s.phase === 'night') {
     const n = s.night;
-    if (n.stage === 'act') {
+    if (n.stage === 'witches') {
+      if (n.victim || Math.random() < 0.2) return; // às vezes o tempo acaba
       const t = rnd(alive).id;
       for (const w of alive.filter((p) => p.everWitch)) applyAction(s, w.id, { type: 'nightVote', target: t }, now);
-      if (n.hunter && !n.pick && s.phase === 'night') {
+      return;
+    }
+    if (n.stage === 'hunter') {
+      if (n.hunter && !n.pick && getP(s, n.hunter).alive && Math.random() < 0.8) {
         const opts = alive.filter((p) => p.id !== n.hunter);
         if (opts.length) applyAction(s, n.hunter, { type: 'hunterPick', target: rnd(opts).id }, now);
       }
       return;
     }
+    if (n.stage !== 'confess') return;
     for (const p of alive) {
       if (s.phase !== 'night' || !p.alive || s.night.done[p.id]) continue;
       if (Math.random() < 0.2) {

@@ -17,52 +17,97 @@ function timer(app, deadline) {
   return `<span class="timer" data-deadline="${deadline}">${fmtSecs(remaining(app, deadline))}</span>`;
 }
 
-// ---------- tapete de cada jogador ----------
-function matHtml(app, v, p) {
+// ---------- lugares em volta da mesa redonda ----------
+function miniTrial(app, t, seeTypes) {
+  const type = seeTypes || t.revealed ? t.type : null;
+  const fresh = t.uid && app.ui.flips?.has(t.uid) ? 'flip' : '';
+  return `<i class="chip ${type ? 't-' + type : 'back'} ${t.revealed ? 'rev' : ''} ${fresh}" title="${t.revealed ? esc(TRIALS[t.type].name) : 'oculta'}">${type ? icon(type) : ''}</i>`;
+}
+
+function seatHtml(app, v, p, x, y) {
   const isTurn = v.turn?.pid === p.id && v.phase === 'day';
   const mine = p.id === v.me;
   const c = charOf(p);
   const online = v.online?.[p.id] !== false;
   // a própria equipe não aparece na mesa (quem olhar o seu celular não vê); fica no Perfil
   const coven = p.everWitch && (v.moderator || v.phase === 'over' || (!mine && (v.coven || []).includes(p.id)));
-  const seeTypes = v.moderator;
-  const trials = p.trials.map((t) => trialCard(seeTypes || t.revealed ? t : { ...t, type: null }, { size: 'xs', mine: seeTypes, fresh: app.ui.flips })).join('');
-  const front = p.front.map((x) => cardFace(x, { size: 'xs' })).join('');
-  const tags = [
-    mine ? '<span class="tag">você</span>' : '',
-    isTurn ? '<span class="tag turn">vez</span>' : '',
-    coven ? '<span class="tag coven">coven</span>' : '',
-    online ? '' : '<span class="tag off">offline</span>',
-  ].join('');
-  const hand = v.moderator && p.hand?.length ? `<div class="mat-hand">${p.hand.map((h) => cardFace(h, { size: 'xs' })).join('')}</div>` : '';
-  return `<div class="mat ${isTurn ? 'turn' : ''} ${p.alive ? '' : 'dead'} ${mine ? 'me' : ''} ${coven && v.phase !== 'over' ? 'coven' : ''}" data-a="${mine ? 'openSheet' : 'seatInfo'}" data-s="profile" data-pid="${p.id}">
-    <div class="mat-head">
-      <span class="portrait">${icon(sprite(p))}${coven ? icon('bruxa', 'badge') : ''}</span>
-      <div class="mat-id"><div class="mat-name">${esc(p.name)}</div>
-        <div class="mat-char">${esc(c.name)}${p.character === 'aprendiz' && p.copied ? ` · ${esc(CHARACTERS[p.copied].name)}` : ''}</div>
-        <div class="tags">${tags}</div></div>
-      ${stackHtml(p.handCount)}
+  const trials = p.trials.map((t) => miniTrial(app, t, v.moderator)).join('');
+  // acusações viram o medidor; o resto (Corvo, Amuleto, Tronco…) aparece como ícone
+  const extras = p.front.filter((x) => CARDS[x.type].color !== 'red').map((x) => `<span class="seat-extra" title="${esc(CARDS[x.type].name)}">${icon(x.type)}</span>`).join('');
+  const cls = ['seat', isTurn && 'turn', !p.alive && 'dead', mine && 'me', coven && v.phase !== 'over' && 'coven', !online && 'off'].filter(Boolean).join(' ');
+  return `<div class="${cls}" style="--x:${x}%;--y:${y}%" data-a="${mine ? 'openSheet' : 'seatInfo'}" data-s="profile" data-pid="${p.id}">
+    <div class="seat-top">
+      <span class="portrait">${icon(sprite(p))}${coven ? icon('bruxa', 'badge') : ''}${p.alive ? '' : icon('caveira', 'badge dead-badge')}</span>
+      <span class="seat-hand" title="${p.handCount} carta(s) na mão">${p.handCount}</span>
     </div>
-    <div class="mat-trials">${trials}</div>
-    ${p.alive ? `<div class="mat-front">${meterHtml(p.points, p.threshold)}<span class="front-cards">${front}</span></div>` : '<div class="mat-front"><span class="dead-label">fora do jogo</span></div>'}
-    ${hand}
+    <div class="seat-name">${mine ? '<b class="you">você</b> ' : ''}${esc(p.name)}</div>
+    <div class="seat-char">${esc(c.name)}${p.character === 'aprendiz' && p.copied ? ` · ${esc(CHARACTERS[p.copied].name)}` : ''}</div>
+    <div class="seat-trials">${trials}</div>
+    ${p.alive ? `<div class="seat-front">${meterHtml(p.points, p.threshold)}${extras}</div>` : '<div class="seat-front"><span class="dead-label">fora do jogo</span></div>'}
+    ${online ? '' : '<span class="tag off">offline</span>'}
   </div>`;
+}
+
+// Posições (em %) dos lugares numa elipse, com espaçamento igual ao longo da
+// borda, e não por ângulo: numa mesa alta e estreita (celular) ou larga e baixa
+// (computador) isso evita amontoar gente nas pontas. O primeiro lugar fica
+// embaixo; a ordem segue no sentido horário. box = tamanho real da mesa em px
+// (medido depois de desenhar; na primeira vez é uma estimativa).
+function seatPositions(n, box) {
+  const narrow = typeof matchMedia === 'function' && matchMedia('(max-width: 520px)').matches;
+  const vw = typeof innerWidth === 'number' ? innerWidth : 800;
+  const w = box?.w || Math.min(vw, 820) - (narrow ? 24 : 44);
+  const h = box?.h || (narrow ? 250 + n * 40 : 330 + n * 30);
+  // meio lugar de folga nas bordas (mesma conta da largura no CSS)
+  const seatW = Math.max(74, Math.min(vw * 0.17, 1250 / n, 128));
+  const seatH = narrow ? 100 : 128;
+  const rx = Math.max(w * 0.3, w / 2 - seatW / 2 - 4);
+  const ry = Math.max(h * 0.3, h / 2 - seatH / 2 - 4);
+  const STEPS = 720;
+  const pts = [];
+  let total = 0;
+  for (let i = 0; i <= STEPS; i++) {
+    const a = Math.PI / 2 + (i * 2 * Math.PI) / STEPS;
+    const pt = [rx * Math.cos(a), ry * Math.sin(a)];
+    if (i) total += Math.hypot(pt[0] - pts[i - 1][0], pt[1] - pts[i - 1][1]);
+    pts.push([...pt, total]);
+  }
+  const out = [];
+  let j = 0;
+  for (let k = 0; k < n; k++) {
+    const target = (k * total) / n;
+    while (j < STEPS && pts[j + 1][2] < target) j++;
+    const [x, y] = pts[j];
+    out.push([(50 + (x / w) * 100).toFixed(2), (50 + (y / h) * 100).toFixed(2)]);
+  }
+  return out;
 }
 
 function tableHtml(app, v) {
   const top = v.discard.at(-1);
-  return `<section class="panel felt">
-    <div class="table-center">
-      <div class="pile" title="Baralho">
-        ${stackHtml(v.deckCount, { size: 'sm', max: 6 })}
-        <div class="pile-label">Baralho<br><small>Meia-Noite em ${v.deckCount}</small></div>
+  const n = v.players.length;
+  // você fica embaixo; a ordem da mesa segue no sentido horário
+  const start = Math.max(0, v.players.findIndex((p) => p.id === v.me));
+  const pos = seatPositions(n, app.tableBox);
+  const seats = v.players.map((p, i) => {
+    const [x, y] = pos[(i - start + n) % n];
+    return seatHtml(app, v, p, x, y);
+  }).join('');
+  return `<section class="panel felt round">
+    <div class="roundtable" style="--n:${n}">
+      <div class="rt-top"></div>
+      <div class="table-center">
+        <div class="pile" title="Baralho">
+          ${stackHtml(v.deckCount, { size: 'sm', max: 6 })}
+          <div class="pile-label">Baralho<br><small>Meia-Noite em ${v.deckCount}</small></div>
+        </div>
+        <div class="pile" data-a="openSheet" data-s="discard" title="Descarte">
+          <span class="stack sm" style="--n:1">${top ? cardFace(top, { size: 'sm' }) : cardBack('village', { size: 'sm', cls: 'ghost' })}<b class="stack-n">${v.discard.length}</b></span>
+          <div class="pile-label">Descarte<br><small>toque para ver</small></div>
+        </div>
       </div>
-      <div class="pile" data-a="openSheet" data-s="discard" title="Descarte">
-        <span class="stack sm" style="--n:1">${top ? cardFace(top, { size: 'sm' }) : cardBack('village', { size: 'sm', cls: 'ghost' })}<b class="stack-n">${v.discard.length}</b></span>
-        <div class="pile-label">Descarte<br><small>toque para ver</small></div>
-      </div>
+      ${seats}
     </div>
-    <div class="mats">${v.players.map((p) => matHtml(app, v, p)).join('')}</div>
   </section>`;
 }
 
@@ -72,10 +117,21 @@ function statusHtml(app, v) {
   const t = v.turn;
   const box = (ic, html, mine = false, actions = '') => `<div class="status ${mine ? 'mine' : ''}">${icon(ic, 'st-ic')}<div class="st-body">${html}${actions ? `<div class="actions">${actions}</div>` : ''}</div></div>`;
   if (v.phase === 'choose') return box('aprendiz', 'Cada pessoa escolhe seu morador…');
-  if (v.phase === 'dawn') return box('sol', 'Alvorada: o coven escolhe quem recebe o Corvo Agourento…');
+  if (v.phase === 'dawn') {
+    const label = { sleep: 'Alvorada: todos fecham os olhos…', witches: 'Alvorada: o coven está acordado…', wake: 'Alvorada: o coven volta a dormir…' }[v.dawn.stage];
+    return box('sol', `${label} ${timer(app, v.dawn.deadline)}`);
+  }
   if (v.phase === 'night') {
     const n = v.night;
-    return box('meianoite', n.stage === 'confess' ? `Meia-Noite: hora das confissões ${timer(app, n.deadline)}` : 'Meia-Noite: o coven e o Caçador agem…');
+    const label = {
+      sleep: 'Meia-Noite: todos fecham os olhos…',
+      witches: 'Meia-Noite: o coven está acordado…',
+      witchesSleep: 'Meia-Noite: o coven volta a dormir…',
+      hunter: 'Meia-Noite: o Caçador está acordado…',
+      hunterSleep: 'Meia-Noite: o Caçador volta a dormir…',
+      confess: 'Meia-Noite: hora das confissões',
+    }[n.stage];
+    return box('meianoite', `${label} ${timer(app, n.deadline)}`);
   }
   if (v.phase === 'over') {
     return box('trofeu', v.winner === 'vila' ? 'A Vila venceu!' : 'O Coven venceu!', true,
@@ -89,25 +145,21 @@ function statusHtml(app, v) {
   const hg = t.hourglass ? ` ${icon('ampulheta', 'inline')} ${timer(app, t.hourglass)}` : '';
   const myTurn = t.pid === v.me;
   const btns = [];
-  if (myTurn && m?.alive && !v.busy) {
-    if (!t.mode) {
-      btns.push('<button data-a="draw">Comprar 2</button>');
-      if (has(m, 'cartomante') && m.uses.cartomante < 1) btns.push(`<button class="ghost" data-a="cartomante">${icon('cartomante', 'inline')} Cartomante</button>`);
-      if (has(m, 'boticario') && m.uses.boticario < 2) btns.push(`<button class="ghost" data-a="openSheet" data-s="boticario">${icon('boticario', 'inline')} Boticário (${2 - m.uses.boticario})</button>`);
-    }
-    if (t.mode === 'play') btns.push('<button data-a="endTurn">Encerrar vez</button>');
-  } else if (!myTurn && m?.alive && !t.hourglass) {
+  // comprar / encerrar ficam no rodapé, ao lado da mão (turnActions)
+  if (!myTurn && m?.alive && !t.hourglass) {
     btns.push(`<button class="ghost small" data-a="hourglass">${icon('ampulheta', 'inline')} Virar ampulheta</button>`);
   }
   const label = myTurn
-    ? (t.mode === 'play' ? 'Sua vez: jogue mais cartas ou encerre.' : 'Sua vez! Compre 2 ou toque numa carta da mão.')
+    ? (t.mode === 'play' ? 'Sua vez: jogue mais cartas ou encerre a vez.' : 'Sua vez! Compre 2 ou toque numa carta da mão.')
     : `Vez de <b>${pname(v, t.pid)}</b>${t.mode === 'play' ? ' (jogando)' : ''}.`;
   return box(myTurn ? 'sol' : sprite(P(v, t.pid)), label + hg, myTurn, btns.join(''));
 }
 
 function logHtml(v) {
-  return `<section class="panel"><h3>${icon('aprendiz', 'inline')} Crônica da vila</h3>
-    <div class="log">${[...v.log].reverse().map((e) => `<div class="${e.to ? 'priv' : ''}">${esc(e.text)}</div>`).join('')}</div></section>`;
+  // fechada por padrão; a escolha fica salva no aparelho
+  const open = localStorage.getItem('saba-log-open') === '1';
+  return `<section class="panel"><details class="log-box" ${open ? 'open' : ''}><summary><h3>${icon('aprendiz', 'inline')} Crônica da vila</h3></summary>
+    <div class="log">${[...v.log].reverse().map((e) => `<div class="${e.to ? 'priv' : ''}">${esc(e.text)}</div>`).join('')}</div></details></section>`;
 }
 
 // ---------- mão em leque ----------
@@ -137,10 +189,27 @@ export function renderPlayer(app) {
         <div class="dock-label">Sua mão <small>· ${m.hand.length}</small></div>
         ${fanHtml(app, m.hand)}
       </div>
-    </div>`;
+    </div>${turnActions(v, m)}`;
   }
-  return `${statusHtml(app, v)}${tableHtml(app, v)}${logHtml(v)}${dock}`;
+  return gameGrid(statusHtml(app, v), tableHtml(app, v), logHtml(v)) + dock;
 }
+
+// botões da sua vez: fora da caixa da mão, à direita
+function turnActions(v, m) {
+  const t = v.turn;
+  if (v.phase !== 'day' || !t || t.pid !== v.me || !m.alive || v.busy || v.pending) return '';
+  const btns = [];
+  if (!t.mode) {
+    btns.push('<button data-a="draw">Comprar 2</button>');
+    if (has(m, 'cartomante') && m.uses.cartomante < 1) btns.push(`<button class="ghost small" data-a="cartomante">${icon('cartomante', 'inline')} Cartomante</button>`);
+    if (has(m, 'boticario') && m.uses.boticario < 2) btns.push(`<button class="ghost small" data-a="openSheet" data-s="boticario">${icon('boticario', 'inline')} Boticário (${2 - m.uses.boticario})</button>`);
+  }
+  if (t.mode === 'play') btns.push('<button data-a="endTurn">Passar a vez</button>');
+  return btns.length ? `<div class="turn-actions">${btns.join('')}</div>` : '';
+}
+
+// três colunas no computador (status | mesa | crônica); no celular vira uma coluna só
+const gameGrid = (left, center, right) => `<div class="game-grid"><div class="col-left">${left}</div><div class="col-center">${center}</div><div class="col-right">${right}</div></div>`;
 
 function profileSheet(app) {
   const v = app.view;
@@ -213,10 +282,19 @@ function reportSheet(app) {
 function scriptFor(v) {
   switch (v.phase) {
     case 'choose': return 'Bem-vindos à vila. Cada um escolha no celular o morador que vai interpretar.';
-    case 'dawn': return 'A Alvorada se aproxima… Todos olhem para o celular. Bruxas, reconheçam-se e decidam quem recebe o Corvo Agourento.';
-    case 'night': return v.night.stage === 'act'
-      ? 'Soa a Meia-Noite. Todos olhem para o celular. Bruxas, escolham sua vítima. Caçador, erga a Lanterna para proteger alguém.'
-      : 'O sino silencia. Quem quiser pode confessar agora para salvar a própria pele…';
+    case 'dawn': return {
+      sleep: 'A Alvorada se aproxima… Todos fechem os olhos.',
+      witches: 'Bruxas, abram os olhos, reconheçam-se e decidam quem recebe o Corvo Agourento.',
+      wake: 'Bruxas, fechem os olhos. Em instantes, todos abrem os olhos.',
+    }[v.dawn.stage];
+    case 'night': return {
+      sleep: 'Soa a Meia-Noite. Todos fechem os olhos…',
+      witches: 'Bruxas, abram os olhos e escolham sua vítima.',
+      witchesSleep: 'Bruxas, fechem os olhos.',
+      hunter: 'Caçador, abra os olhos e erga a Lanterna para proteger alguém.',
+      hunterSleep: 'Caçador, feche os olhos.',
+      confess: 'Todos abram os olhos. Quem quiser pode confessar agora para salvar a própria pele…',
+    }[v.night.stage];
     case 'day': return v.pending?.kind === 'swap' ? 'O sol escurece! Cada um pega, às cegas, uma carta de equipe do vizinho.' : v.pending?.kind === 'reveal' ? 'A vila exige respostas! Uma carta será revelada.' : `É a vez de ${pname(v, v.turn?.pid)}.`;
     case 'over': return v.winner === 'vila' ? 'A vila respira aliviada: todas as bruxas foram descobertas.' : 'Ao amanhecer, só restam bruxas na vila…';
     default: return '';
@@ -229,12 +307,12 @@ export function renderModerator(app) {
   let info = '';
   if (n) {
     const votes = Object.entries(n.votes || {}).map(([w, t]) => `${pname(v, w)} → ${pname(v, t)}`).join('<br>') || '—';
-    info = `<p><b>Votos do coven:</b><br>${votes}</p><p><b>Caçador:</b> ${n.hunter ? pname(v, n.hunter) : 'nenhum'} → ${n.pick ? pname(v, n.pick) : '…'}</p>
+    info = `<p><b>Votos do coven:</b><br>${votes}${n.victim ? `<br>Vítima: <b>${pname(v, n.victim)}</b>` : ''}</p><p><b>Caçador:</b> ${n.hunter ? pname(v, n.hunter) : 'nenhum'} → ${n.pick ? pname(v, n.pick) : '…'}</p>
       ${n.stage === 'confess' ? `<p><b>Já decidiram:</b> ${Object.keys(n.done).map((id) => pname(v, id)).join(', ') || '—'}</p>` : ''}`;
   }
   if (v.pending?.kind === 'swap') info = `<p><b>Eclipse:</b><br>${v.pending.pairs.map((x) => `${pname(v, x.to)} pega de ${pname(v, x.from)}: ${x.pick == null ? '…' : `${x.pick + 1}ª carta`}`).join('<br>')}</p>`;
   if (v.dawn?.votes) info = `<p><b>Votos da Alvorada:</b><br>${Object.entries(v.dawn.votes).map(([w, t]) => `${pname(v, w)} → ${pname(v, t)}`).join('<br>') || '—'}</p>`;
-  return `${statusHtml(app, v)}
+  return gameGrid(`${statusHtml(app, v)}
     <section class="panel"><h2>Painel do moderador</h2>
       <div class="script">${scriptFor(v)}</div>${info}
       <div class="mod-grid">
@@ -245,8 +323,7 @@ export function renderModerator(app) {
         <button class="danger" data-a="lobby">Voltar ao lobby</button>
       </div>
       <p class="muted">Coven: ${(v.coven || []).map((id) => pname(v, id)).join(', ') || '—'}</p>
-    </section>
-    ${tableHtml(app, v)}${logHtml(v)}`;
+    </section>`, tableHtml(app, v), logHtml(v));
 }
 
 // ---------- escolha de jogadores ----------
@@ -305,21 +382,43 @@ function chooseSheet(app) {
     <div class="row-cards big">${m.options.map((id) => charCard(id, { size: 'lg', act: 'pickChar', attrs: `data-c="${id}"` })).join('')}</div>`);
 }
 
-function decoySheet(app, title, text) {
-  const v = app.view;
-  return dialog(`<h2>${title}</h2><p>${text}</p>
-    ${playerChoices(v, alive(v).filter((p) => p.id !== v.me), 'decoy', { sel: app.ui.decoy })}
-    ${app.ui.decoy ? '<p class="muted center">Anotado. Aguarde os outros…</p>' : ''}`, 'night-box');
+// tela de olhos fechados, com a contagem grande
+function closedSheet(app, deadline, title, text, ic = 'meianoite', extra = '') {
+  return dialog(`<div class="eyes-closed">${icon(ic, 'big')}<h2>${title}</h2>
+    ${extra}<div class="big-timer">${timer(app, deadline)}</div><p class="muted">${text}</p></div>`, 'night-box');
+}
+
+// Antes de fechar os olhos, cada pessoa vê o próprio papel e a deixa em que
+// deve acordar (de olhos fechados não dá para ler a tela depois).
+function roleCue(m, { hunter = false, night = false, mod = false } = {}) {
+  const lines = [];
+  if (m.everWitch) {
+    lines.push(`<div class="role-cue witch">${icon('bruxa', 'inline')} Você é <b>BRUXA</b>. ${mod ? 'Abra os olhos quando o <b>moderador</b> chamar as bruxas e feche quando ele mandar.' : 'Abra os olhos quando o <b>sino</b> tocar e feche no sino seguinte.'}</div>`);
+  }
+  if (hunter) {
+    lines.push(`<div class="role-cue hunter">${icon('cacador', 'inline')} Você é o <b>Caçador</b>. ${mod ? 'Abra os olhos quando o <b>moderador</b> chamar o Caçador e feche quando ele mandar.' : 'Abra os olhos quando a <b>coruja</b> piar e feche quando ela piar de novo.'}</div>`);
+  }
+  if (!lines.length) {
+    const hasHunter = !night && m.trials.some((t) => t.type === 'cacador' && !t.revealed);
+    lines.push(`<div class="role-cue">${icon('inocente', 'inline')} Você é da <b>vila</b>. Fique de olhos fechados até ${mod ? 'o <b>moderador</b> mandar abrir' : 'o <b>galo</b> cantar'}.${hasHunter ? ' (Sua carta de Caçador só age na Meia-Noite.)' : ''}</div>`);
+  }
+  return lines.join('');
 }
 
 function dawnSheet(app) {
   const v = app.view;
   const m = me(v);
-  if (!m.everWitch) return decoySheet(app, 'Alvorada', 'O coven está agindo. Para ninguém perceber, toque em quem você acha suspeito.');
-  return dialog(`<h2>${icon('bruxa', 'inline')} Alvorada</h2>
+  const d = v.dawn;
+  if (d.stage === 'sleep') return closedSheet(app, d.deadline, 'Fechem os olhos', 'Leia seu papel e feche os olhos antes da contagem acabar.', 'sol', roleCue(m, { mod: v.config?.moderator }));
+  if (d.stage === 'wake') {
+    return closedSheet(app, d.deadline, 'Olhos fechados', m.everWitch ? `O Corvo vai para <b>${pname(v, d.target)}</b>. Feche os olhos.` : 'O coven volta a dormir…', 'sol');
+  }
+  if (!m.everWitch) return closedSheet(app, d.deadline, 'Olhos fechados', 'O coven está decidindo quem recebe o Corvo Agourento…', 'sol');
+  if (d.target) return closedSheet(app, d.deadline, 'O coven decidiu', `O Corvo vai para <b>${pname(v, d.target)}</b>. ${v.config?.moderator ? 'Fechem os olhos quando o moderador mandar.' : 'Quando o sino tocar, fechem os olhos.'}`, 'sol');
+  return dialog(`<h2>${icon('bruxa', 'inline')} Alvorada ${timer(app, d.deadline)}</h2>
     <p>Você é do <b>coven</b>${v.coven?.length ? ` com <b>${v.coven.map((id) => pname(v, id)).join(', ')}</b>` : ' e age sozinha nesta partida'}.</p>
-    <div class="row-cards">${cardFace({ type: 'corvo' }, { size: 'mdm' })}<p class="grow">Escolham juntas quem recebe o <b>Corvo Agourento</b>. Pode ser uma de vocês. Todas precisam votar na mesma pessoa.</p></div>
-    ${playerChoices(v, v.players, 'dawnVote', { sel: v.dawn?.votes?.[v.me], votes: v.dawn?.votes || {} })}`, 'night-box');
+    <div class="row-cards">${cardFace({ type: 'corvo' }, { size: 'mdm' })}<p class="grow">Escolham juntas quem recebe o <b>Corvo Agourento</b>. Pode ser uma de vocês. Todas precisam votar na mesma pessoa; sem acordo até o fim do tempo, o destino escolhe.</p></div>
+    ${playerChoices(v, v.players, 'dawnVote', { sel: d.votes?.[v.me], votes: d.votes || {} })}`, 'night-box');
 }
 
 function nightSheet(app) {
@@ -341,18 +440,31 @@ function nightSheet(app) {
       ${n.canSacristao ? `<button class="ghost" data-a="sacristao">${icon('sacristao', 'inline')} Sem revelar</button>` : ''}
       <button class="ghost" data-a="pass">Não confessar</button></div>`, 'night-box');
   }
-  const parts = [];
-  if (n.role === 'witch' || n.role === 'both') {
-    parts.push(`<h3>${icon('bruxa', 'inline')} O coven escolhe a vítima</h3>
-      <p class="muted">Coven: ${[v.me, ...(v.coven || [])].map((id) => (id === v.me ? 'você' : pname(v, id))).join(', ')}. Todas precisam votar na mesma pessoa.</p>
-      ${playerChoices(v, alive(v), 'nightVote', { sel: n.votes?.[v.me], votes: n.votes || {} })}`);
+  const t = timer(app, n.deadline);
+  const witch = n.role === 'witch' || n.role === 'both';
+  const hunter = n.role === 'hunter' || n.role === 'both';
+  const closed = (title, text) => closedSheet(app, n.deadline, title, text);
+  if (n.stage === 'sleep') return closedSheet(app, n.deadline, 'Fechem os olhos', 'Leia seu papel e feche os olhos antes da contagem acabar.', 'meianoite', roleCue(m, { hunter, night: true, mod: v.config?.moderator }));
+  if (n.stage === 'witches') {
+    if (!witch) return closed('Olhos fechados', 'O coven está escolhendo a vítima…');
+    if (n.victim) return closed('O coven decidiu', `Vítima: <b>${pname(v, n.victim)}</b>. ${v.config?.moderator ? 'Fechem os olhos quando o moderador mandar.' : 'Quando o sino tocar, fechem os olhos.'}`);
+    const covenNames = [v.me, ...(v.coven || [])].map((id) => (id === v.me ? 'você' : pname(v, id))).join(', ');
+    return dialog(`<h2>${icon('bruxa', 'inline')} O coven escolhe a vítima ${t}</h2>
+      <p class="muted">Coven: ${covenNames}. Todas precisam votar na mesma pessoa. Sem acordo até o fim do tempo, o destino escolhe por vocês.</p>
+      ${playerChoices(v, alive(v), 'nightVote', { sel: n.votes?.[v.me], votes: n.votes || {} })}`, 'night-box');
   }
-  if (n.role === 'hunter' || n.role === 'both') {
-    parts.push(`<h3>${icon('cacador', 'inline')} Caçador: erga a Lanterna</h3><p class="muted">Proteja outra pessoa da vítima do coven.</p>
-      ${playerChoices(v, alive(v).filter((p) => p.id !== v.me), 'hunterPick', { sel: n.pick })}`);
+  if (n.stage === 'witchesSleep') {
+    return closed('Olhos fechados', witch ? `Vítima: <b>${pname(v, n.victim)}</b>. Feche os olhos.` : 'O coven volta a dormir…');
   }
-  if (!parts.length) return decoySheet(app, `${icon('meianoite', 'inline')} Meia-Noite`, 'O coven e o Caçador estão agindo. Para ninguém perceber, toque em alguém por quem você reza esta noite.');
-  return dialog(`<h2>${icon('meianoite', 'inline')} Meia-Noite</h2>${parts.join('')}<p class="muted center">Aguardando todos decidirem…</p>`, 'night-box');
+  if (n.stage === 'hunter') {
+    if (!hunter) return closed('Olhos fechados', 'O Caçador está agindo…');
+    if (n.pick) return closed('Lanterna erguida', `Você protegeu <b>${pname(v, n.pick)}</b>. ${v.config?.moderator ? 'Feche os olhos quando o moderador mandar.' : 'Quando a coruja piar, feche os olhos.'}`);
+    return dialog(`<h2>${icon('cacador', 'inline')} Caçador: erga a Lanterna ${t}</h2>
+      <p class="muted">Proteja outra pessoa da vítima do coven. Sem escolha até o fim do tempo, ninguém fica protegido.</p>
+      ${playerChoices(v, alive(v).filter((p) => p.id !== v.me), 'hunterPick', { sel: n.pick })}`, 'night-box');
+  }
+  if (n.stage === 'hunterSleep') return closed('Olhos fechados', hunter ? 'Feche os olhos. Em instantes, todos acordam.' : 'Em instantes, todos acordam…');
+  return '';
 }
 
 function revealSheet(app) {
@@ -409,9 +521,11 @@ function seatInfoSheet(app, pid) {
   const p = P(v, pid);
   if (!p) return '';
   const front = p.front.length ? `<h3>Na frente</h3><div class="row-cards">${p.front.map((x) => cardFace(x, { size: 'mdm' })).join('')}</div>` : '';
+  const trials = `<h3>Cartas de equipe</h3><div class="row-cards">${p.trials.map((t) => trialCard(v.moderator || t.revealed ? t : { ...t, type: null }, { size: 'sm', mine: v.moderator })).join('')}</div>`;
+  const hand = v.moderator && p.hand?.length ? `<h3>Mão</h3><div class="row-cards">${p.hand.map((h) => cardFace(h, { size: 'sm' })).join('')}</div>` : '';
   return dialog(`<h2>${esc(p.name)}</h2>
     <div class="card-show">${charCard(p.character, { size: 'lg', copied: p.copied })}</div>
-    <p class="center">Acusação ${p.points}/${p.threshold} · ${p.handCount} carta(s) na mão</p>${front}
+    <p class="center">Acusação ${p.points}/${p.threshold} · ${p.handCount} carta(s) na mão</p>${trials}${front}${hand}
     <button class="ghost block" data-a="closeSheet">Fechar</button>`);
 }
 
