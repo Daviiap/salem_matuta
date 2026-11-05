@@ -676,6 +676,27 @@ const ACTIONS = {
     log(s, `${name(p)} compra 2 cartas.`);
   },
 
+  // várias acusações de uma vez no mesmo alvo: da mais forte para a mais fraca, parando
+  // quando o alvo chega ao limite (as que sobram continuam na mão)
+  accuse(s, p, a) {
+    requireTurn(s, p);
+    const uids = [...new Set(a.uids || [])];
+    if (!uids.length) fail('Escolha ao menos uma acusação.');
+    const target = requireTarget(s, p, a.target);
+    const cards = uids.map((uid) => p.hand.find((c) => c.uid === uid));
+    if (cards.some((c) => !c)) fail('Essa carta não está na sua mão.');
+    if (cards.some((c) => !isRed(c))) fail('Só cartas de acusação podem ser jogadas juntas.');
+    cards.sort((x, y) => cardValue(s, y, target) - cardValue(s, x, target));
+    ACTIONS.play(s, p, { uid: cards[0].uid, targets: [target.id] });
+    let used = 1;
+    for (const c of cards.slice(1)) {
+      if (s.pending || s.steps.length || s.phase !== 'day' || s.turn?.pid !== p.id || !target.alive) break;
+      ACTIONS.play(s, p, { uid: c.uid, targets: [target.id] });
+      used++;
+    }
+    if (used < cards.length) log(s, `${name(p)} guarda ${cards.length - used} acusação(ões): ${name(target)} já chegou ao limite.`);
+  },
+
   play(s, p, a) {
     requireTurn(s, p);
     if (s.turn.mode === 'draw') fail('Você já comprou nesta vez.');

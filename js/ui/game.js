@@ -184,7 +184,11 @@ export function renderPlayer(app) {
   let dock = '';
   if (m && m.character) {
     dock = `<div class="dock">
-      <button class="profile-btn" data-a="openSheet" data-s="profile" title="Seu perfil">${icon(m.alive ? m.character : 'caveira')}<span>Perfil</span></button>
+      <div class="dock-btns">
+        <button class="profile-btn" data-a="openSheet" data-s="profile" title="Seu perfil">${icon(m.alive ? m.character : 'caveira')}<span>Perfil</span></button>
+        <button class="peek-btn ${app.ui.peekOpen ? 'on' : ''}" data-peek data-a="togglePeek" title="Passe o mouse para espiar suas cartas de equipe; clique para deixá-las abertas">${cardBack('trial', { size: 'xs' })}<span>Equipe</span></button>
+      </div>
+      ${peekHtml(app, m)}
       <div class="dock-hand">
         <div class="dock-label">Sua mão <small>· ${m.hand.length}</small></div>
         ${fanHtml(app, m.hand)}
@@ -192,6 +196,20 @@ export function renderPlayer(app) {
     </div>${turnActions(v, m)}`;
   }
   return gameGrid(statusHtml(app, v), tableHtml(app, v), logHtml(v)) + dock;
+}
+
+// cartas de equipe no rodapé: aparecem ao passar o mouse no botão; clicando, ficam abertas
+// e dá para trocar a ordem (tocando em duas ou arrastando uma sobre a outra)
+function peekHtml(app, m) {
+  const open = app.ui.peekOpen;
+  const cards = m.trials.map((t, i) => trialCard(t, {
+    size: 'md', mine: true, fresh: app.ui.flips, i, sel: open && app.ui.swap === i,
+    act: open && !t.revealed ? 'swap' : null, attrs: open && !t.revealed ? 'draggable="true" data-drag-trial' : '',
+  })).join('');
+  const hint = open ? 'toque em duas ocultas, ou arraste uma sobre a outra, para trocar a ordem' : 'clique no botão para deixar aberto';
+  return `<div class="peek ${open ? 'open' : ''}" aria-hidden="${open ? 'false' : 'true'}">
+    <div class="peek-label">Suas cartas de equipe <small>· ${hint}</small>${open ? '<button class="ghost small peek-close" data-a="togglePeek">Fechar</button>' : ''}</div>
+    <div class="row-cards">${cards}</div></div>`;
 }
 
 // botões da sua vez: fora da caixa da mão, à direita
@@ -352,6 +370,7 @@ function playSheet(app) {
   const d = CARDS[card.type];
   const myTurn = v.phase === 'day' && v.turn?.pid === v.me && !v.pending && !v.busy && v.turn.mode !== 'draw' && m.alive;
   const step = ui.play.targets.length;
+  if (myTurn && d.color === 'red') return accuseSheet(app, v, m);
   let body;
   if (!myTurn) body = '<p class="muted center">Você só pode jogar cartas na sua vez.</p>';
   else if (d.color === 'blue' && alive(v).length <= 2) body = '<p class="muted center">Com só 2 pessoas vivas, as cartas azuis não são usadas.</p>';
@@ -371,6 +390,47 @@ function playSheet(app) {
   }
   return dialog(`<div class="card-show">${cardFace(card, { size: 'lg' })}</div>${body}
     <div class="actions"><button class="ghost" data-a="closeSheet">Fechar</button>${step ? '<button class="ghost" data-a="resetTargets">Refazer alvos</button>' : ''}</div>`);
+}
+
+// acusações: marque quantas cartas vermelhas quiser e escolha em quem jogar
+function redValue(m, card, target) {
+  if (card.type === 'boato') return has(m, 'prefeito') ? 2 : 1;
+  if (card.type === 'indicio') return target && has(target, 'padre') ? 1 : 3;
+  return 7;
+}
+
+function accuseSheet(app, v, m) {
+  const ui = app.ui;
+  const reds = m.hand.filter((h) => CARDS[h.type].color === 'red');
+  ui.play.reds = (ui.play.reds || [ui.play.uid]).filter((uid) => reds.some((h) => h.uid === uid));
+  const chosen = reds.filter((h) => ui.play.reds.includes(h.uid));
+  const target = P(v, ui.play.targets[0]);
+  const xerife = has(m, 'xerife');
+  const limit = (p) => p.threshold - (xerife ? 1 : 0);
+  const sum = (p) => chosen.reduce((n, h) => n + redValue(m, h, p), 0);
+  const opts = v.players.filter((p) => p.alive && p.id !== v.me && !p.front.some((c) => c.type === 'amuleto'));
+  const info = (p) => {
+    const after = p.points + sum(p);
+    return `${p.points} → <b>${after}</b>/${limit(p)} pts${after >= limit(p) ? ' · <b class="hot">revela!</b>' : ''}`;
+  };
+  // o que sobra depois de atingir o limite volta para a mão
+  let used = chosen.length;
+  if (target) {
+    const vals = chosen.map((h) => redValue(m, h, target)).sort((a, b) => b - a);
+    let pts = target.points; used = 0;
+    for (const x of vals) { pts += x; used++; if (pts >= limit(target)) break; }
+  }
+  const btn = target && chosen.length
+    ? `<button class="block" data-a="confirmAccuse">Jogar ${used} acusação(ões) em ${esc(target.name)}</button>
+       ${used < chosen.length ? `<p class="muted center small-text">${target.name} chega ao limite antes: ${chosen.length - used} carta(s) ficam na sua mão.</p>` : ''}`
+    : `<p class="muted center small-text">${chosen.length ? 'Agora toque em quem vai receber.' : 'Marque ao menos uma carta.'}</p>`;
+  return dialog(`<h2>Acusar</h2>
+    <h3>Quais cartas? <small>· toque para marcar ou desmarcar (${chosen.length} de ${reds.length})</small></h3>
+    <div class="row-cards accuse-cards">${reds.map((h) => cardFace(h, { size: 'mdm', act: 'toggleRed', sel: ui.play.reds.includes(h.uid) })).join('')}</div>
+    <h3>Em quem?</h3>
+    ${opts.length ? playerChoices(v, opts, 'pickAccused', { sel: target?.id, info }) : '<p class="muted">Ninguém pode ser acusado agora.</p>'}
+    ${btn}
+    <div class="actions"><button class="ghost" data-a="closeSheet">Fechar</button></div>`);
 }
 
 const dialog = (html, cls = '') => `<div class="inner ${cls}">${html}</div>`;

@@ -239,6 +239,26 @@ test('meia-noite: sem votos, a vítima é sorteada fora do coven', () => {
   assert.equal(getP(s, s.night.victim).everWitch, false);
 });
 
+test('acusar com várias cartas: joga da mais forte e guarda o que passa do limite', () => {
+  const s = setup(5, 7);
+  finishDawn(s, 'p0');
+  s.players.forEach((p) => { if (['ferreiro', 'xerife', 'prefeito', 'aprendiz', 'padre'].includes(p.character)) p.character = 'viuva'; });
+  getP(s, 'p1').front = getP(s, 'p1').front.filter((c) => c.type !== 'amuleto');
+  const b1 = give(s, 'p0', 'boato'); const b2 = give(s, 'p0', 'boato');
+  const i1 = give(s, 'p0', 'indicio'); const i2 = give(s, 'p0', 'indicio');
+  // duas acusações abaixo do limite: tudo entra
+  applyAction(s, 'p0', { type: 'accuse', uids: [b1.uid, i1.uid], target: 'p1' });
+  assert.equal(accusationPoints(s, getP(s, 'p1')), 4);
+  assert.equal(s.pending, null);
+  // 4 + 3 já chega a 7: o Indício entra primeiro e o Boato volta para a mão
+  applyAction(s, 'p0', { type: 'accuse', uids: [b2.uid, i2.uid], target: 'p1' });
+  assert.equal(s.pending?.kind, 'reveal');
+  const hand = getP(s, 'p0').hand.map((c) => c.uid);
+  assert.ok(hand.includes(b2.uid) && !hand.includes(i2.uid));
+  // sem cartas marcadas, nada acontece
+  assert.throws(() => applyAction(s, 'p0', { type: 'accuse', uids: [], target: 'p2' }), GameError);
+});
+
 test('quem joga a última carta encerra a vez sozinho', () => {
   const s = setup(5, 12);
   finishDawn(s, 'p0');

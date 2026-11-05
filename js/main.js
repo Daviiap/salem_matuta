@@ -468,6 +468,20 @@ const H = {
     app.ui.play.targets.push(d.pid);
     render();
   },
+  toggleRed(d) {
+    const r = app.ui.play?.reds;
+    if (!r) return;
+    const i = r.indexOf(d.uid);
+    if (i >= 0) r.splice(i, 1); else r.push(d.uid);
+    render();
+  },
+  pickAccused(d) { if (app.ui.play) { app.ui.play.targets = [d.pid]; render(); } },
+  confirmAccuse() {
+    const p = app.ui.play;
+    send({ type: 'accuse', uids: p.reds, target: p.targets[0] });
+    app.ui.play = null;
+    render();
+  },
   pickBlue(d) { app.ui.play.blue = d.uid; render(); },
   resetTargets() { app.ui.play.targets = []; app.ui.play.blue = null; render(); },
   confirmPlay() {
@@ -481,6 +495,7 @@ const H = {
     send({ type: 'reveal', index: +d.i, taberna: r.taberna, juiz: r.juiz });
   },
   opt(d, el) { app.ui.reveal[d.o] = el.checked; },
+  togglePeek() { app.ui.peekOpen = !app.ui.peekOpen; app.ui.swap = null; if (!app.ui.peekOpen) peek(false); render(); },
   swap(d) {
     const i = +d.i;
     const ui = app.ui;
@@ -509,6 +524,41 @@ addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setT
 // navegadores só liberam áudio depois de um gesto
 document.addEventListener('pointerdown', unlock);
 document.addEventListener('keydown', unlock);
+
+// espiar as cartas de equipe: passar o mouse no botão mostra; clicar deixa aberto (togglePeek)
+const peek = (on) => document.body.classList.toggle('peeking', on);
+document.addEventListener('pointerover', (e) => { if (e.pointerType === 'mouse' && e.target.closest('[data-peek]')) peek(true); });
+document.addEventListener('pointerout', (e) => { const b = e.target.closest('[data-peek]'); if (b && !b.contains(e.relatedTarget)) peek(false); });
+addEventListener('blur', () => peek(false));
+
+// arrastar uma carta de equipe sobre outra troca as duas de lugar
+let dragTrial = null;
+document.addEventListener('dragstart', (e) => {
+  const el = e.target.closest?.('[data-drag-trial]');
+  if (!el) return;
+  dragTrial = +el.dataset.i;
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', String(dragTrial));
+  el.classList.add('dragging');
+});
+document.addEventListener('dragover', (e) => {
+  const el = e.target.closest?.('[data-drag-trial]');
+  if (dragTrial == null || !el) return;
+  e.preventDefault();
+  document.querySelectorAll('.drop-over').forEach((x) => x !== el && x.classList.remove('drop-over'));
+  if (+el.dataset.i !== dragTrial) el.classList.add('drop-over');
+});
+document.addEventListener('drop', (e) => {
+  const el = e.target.closest?.('[data-drag-trial]');
+  if (dragTrial == null || !el) return;
+  e.preventDefault();
+  const j = +el.dataset.i;
+  if (j !== dragTrial) { send({ type: 'swapTrials', i: dragTrial, j }); app.ui.swap = null; }
+});
+document.addEventListener('dragend', () => {
+  dragTrial = null;
+  document.querySelectorAll('.dragging, .drop-over').forEach((x) => x.classList.remove('dragging', 'drop-over'));
+});
 
 document.addEventListener('click', (e) => {
   const el = e.target.closest('[data-a]');

@@ -427,6 +427,25 @@ body.has-dock .toast { bottom: auto; top: 64px; }
 .profile-btn { flex: 0 0 auto; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 8px 6px; margin: 0 0 14px 2px;
   background: var(--panel-hi); color: var(--gold); text-transform: uppercase; font-size: .7rem; }
 .profile-btn img { width: 40px; height: 40px; }
+.dock-btns { flex: 0 0 auto; display: flex; flex-direction: column; gap: 6px; margin: 0 0 14px 2px; }
+.dock-btns .profile-btn { margin: 0; }
+.peek-btn { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 6px 4px; margin: 0;
+  background: var(--panel-hi); color: var(--gold); text-transform: uppercase; font-size: .6rem;
+  user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.peek-btn .gcard { pointer-events: none; }
+body.peeking .peek-btn, .peek-btn.on { filter: brightness(1.4); }
+.peek-btn.on { --ring: var(--gold); }
+.peek { display: none; position: absolute; left: 8px; right: 8px; bottom: calc(100% + 14px); z-index: 45;
+  padding: 10px 10px 12px; background: var(--panel, #1b1230);
+  box-shadow: 0 0 0 4px var(--ink), 0 0 0 8px var(--gold), 0 0 0 12px var(--ink); pointer-events: none; }
+body.peeking .peek, .peek.open { display: block; }
+.peek.open { pointer-events: auto; }
+.peek-close { margin: 0 0 0 10px; vertical-align: middle; }
+.peek [data-drag-trial] { cursor: grab; }
+.peek .gcard.dragging { opacity: .4; }
+.peek .gcard.drop-over { --ring: var(--gold); transform: translateY(-6px); }
+.peek-label { font-family: var(--pixel); font-size: .8rem; color: var(--gold); margin-bottom: 8px; text-align: center; }
+.peek .row-cards { justify-content: center; }
 .dock-hand { flex: 1; min-width: 0; }
 /* botões da vez: flutuam fora da caixa da mão, à direita. Em telas largas
    ficam ao lado dela; nas demais, logo acima do canto direito. */
@@ -556,3 +575,8 @@ body.has-dock .toast { bottom: auto; top: 64px; }
   background: rgba(255, 255, 255, .06); box-shadow: 0 0 0 2px var(--panel-hi); }
 .role-cue.witch { background: rgba(93, 42, 134, .45); box-shadow: 0 0 0 2px var(--purple); color: #f1d9ff; }
 .role-cue.hunter { background: rgba(154, 90, 28, .35); box-shadow: 0 0 0 2px var(--orange); }
+
+/* acusar com várias cartas */
+.accuse-cards { flex-wrap: wrap; justify-content: center; }
+.accuse-cards .gcard:not(.sel) { filter: brightness(.55) saturate(.6); }
+.hot { color: #ff6b5b; }
